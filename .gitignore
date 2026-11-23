@@ -1,0 +1,12 @@
+# Python virtual environment
+.venv/
+
+# Python cache
+__pycache__/
+
+# Local data (database, personal documents)
+data/*
+!data/.gitkeep
+
+# Secrets (e-mail credentials later)
+.env
