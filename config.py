@@ -12,6 +12,8 @@ KEYWORDS = [
     # Security operations
     "soc", "siem", "edr", "xdr", "incident response", "threat", "threat intelligence",
     "forensic", "forensics", "malware", "blue team",
+    "security operations", "security analyst", "detection", "threat hunting",
+    "splunk", "sentinel", "qradar", "crowdstrike",
 
     # Offensive security
     "pentest", "pentester", "penetration testing", "red team", "ethical hacking",
