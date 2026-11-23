@@ -39,9 +39,9 @@ def fetch_rss(state: JobState) -> dict:
         offers.append(Offer(
             title=position,
             company=company,
-            location="unknown",              # the RSS feed has no location (option A)
+            location="unknown", # TODO: CHANGE, the RSS feed has no location
             description=html_to_text(entry.get("description", "")),
-            source=config.SOURCE_NAME,                # use the value from config.py
+            source=config.SOURCE_NAME,
             link=clean_link(entry.link),
             published=entry.get("published", ""),
             fetched=fetched,

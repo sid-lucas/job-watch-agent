@@ -16,3 +16,4 @@ class Offer(TypedDict):
 class JobState(TypedDict):
     """State shared by all nodes of the graph."""
     offers: list[Offer]
+    

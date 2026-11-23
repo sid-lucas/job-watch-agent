@@ -1,8 +1,8 @@
 import feedparser
 
-FEED_URL = "https://swissdevjobs.ch/rss"
+import config
 
-feed = feedparser.parse(FEED_URL)
+feed = feedparser.parse(config.FEED_URL)
 print(f"Number of offers: {len(feed.entries)}")
 
 # Inspect the first offer
