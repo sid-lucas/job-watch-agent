@@ -1,3 +1,4 @@
+import re
 from datetime import datetime, timezone
 from urllib.parse import urlsplit, urlunsplit
 
@@ -49,3 +50,16 @@ def fetch_rss(state: JobState) -> dict:
 
     print(f"fetch_rss: {len(offers)} offers")
     return {"offers": offers}
+
+def filter_keywords(state: JobState) -> dict:
+    """Node: keep only offers that contain at least one keyword (whole words)."""
+    patterns = [re.compile(rf"\b{re.escape(k)}\b", re.IGNORECASE) for k in config.KEYWORDS]
+
+    kept = []
+    for offer in state["offers"]:
+        text = f"{offer['title']} {offer['description']}"
+        if any(p.search(text) for p in patterns):
+            kept.append(offer)
+
+    print(f"filter_keywords: {len(kept)} / {len(state['offers'])} offers kept")
+    return {"offers": kept}
