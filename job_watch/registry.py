@@ -14,6 +14,7 @@ PLATFORMS = {
     "umantis.com": "umantis",
     "successfactors.com": "successfactors",
     "successfactors.eu": "successfactors",
+    "personio.com": "personio",
 }
 
 
