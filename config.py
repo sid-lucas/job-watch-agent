@@ -1,6 +1,9 @@
 from checks import is_german_ad, names_pattern
 from pathlib import Path
 
+# Verification LLM (public data only, so a cloud model is acceptable)
+VERIFY_MODEL = "gemini-3.5-flash-lite"
+
 # Display
 MIN_SCORE = 20      # new offers below this score are not displayed
 MAX_DISPLAY = 10    # maximum number of offers displayed
