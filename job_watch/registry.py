@@ -36,3 +36,14 @@ def save_registry(registry: dict) -> None:
     tmp = config.REGISTRY_PATH.with_suffix(".tmp")
     tmp.write_text(json.dumps(registry, indent=2, ensure_ascii=False), encoding="utf-8")
     tmp.replace(config.REGISTRY_PATH)
+
+
+def job_list_root(url: str, platform: str | None) -> str:
+    """Return the job list root for platforms where a single offer URL contains it."""
+    parts = urlsplit(url)
+    if platform == "greenhouse":
+        # job-boards.eu.greenhouse.io/<company>/jobs/<id> -> job-boards.eu.greenhouse.io/<company>
+        segments = [s for s in parts.path.split("/") if s]
+        if segments:
+            return f"{parts.scheme}://{parts.netloc}/{segments[0]}"
+    return url
