@@ -1,6 +1,10 @@
 from checks import is_german_ad, names_pattern
 from pathlib import Path
 
+# Display
+MIN_SCORE = 20      # new offers below this score are not displayed
+MAX_DISPLAY = 10    # maximum number of offers displayed
+
 # Local database
 DB_PATH = Path(__file__).parent / "data" / "offers.db"
 
