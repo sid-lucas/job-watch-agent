@@ -109,6 +109,13 @@ def normalise(text: str) -> str:
     return re.sub(r"\s+", " ", text).strip().casefold()
 
 
+class OfferRow(BaseModel):
+    title: str
+    location: str
+    link: str
+    grounded: bool                  # title found in the page text seen during the run
+
+
 class CaseMetrics(BaseModel):
     company: str
     company_list: str
@@ -127,6 +134,7 @@ class CaseMetrics(BaseModel):
     stop_reason: str
     more_pages: bool | None
     seconds: float
+    offers: list[OfferRow]
 
 
 def measure(case: ListCase, result: RunResult, seconds: float) -> CaseMetrics:
@@ -135,6 +143,8 @@ def measure(case: ListCase, result: RunResult, seconds: float) -> CaseMetrics:
     unique = len({(normalise(o.title), normalise(o.location)) for o in result.offers})
     found_titles = set(titles)
     samples = [(normalise(s.title) in found_titles, s.page) for s in case.sample_titles]
+    rows = [OfferRow(title=o.title, location=o.location, link=o.link, grounded=t in seen)
+            for o, t in zip(result.offers, titles)]
     return CaseMetrics(
         company=case.company,
         company_list=case.company_list,
@@ -142,7 +152,7 @@ def measure(case: ListCase, result: RunResult, seconds: float) -> CaseMetrics:
         unique=unique,
         expected_total=case.expected_total,
         completeness=unique / case.expected_total if case.expected_total else None,
-        grounded=sum(t in seen for t in titles) / len(titles) if titles else None,
+        grounded=sum(r.grounded for r in rows) / len(rows) if rows else None,
         with_link=sum(1 for o in result.offers if o.link),
         samples_found=sum(ok for ok, _ in samples),
         samples_total=len(samples),
@@ -153,6 +163,7 @@ def measure(case: ListCase, result: RunResult, seconds: float) -> CaseMetrics:
         stop_reason=result.stop_reason,
         more_pages=result.more_pages,
         seconds=round(seconds, 1),
+        offers=rows,
     )
 
 
@@ -160,12 +171,16 @@ def pct(value: float | None) -> str:
     return "  -  " if value is None else f"{value:5.0%}"
 
 
-def print_case(m: CaseMetrics) -> None:
+def print_case(m: CaseMetrics, verbose: bool = False) -> None:
     expected = "?" if m.expected_total is None else str(m.expected_total)
     print(f"      {m.company:22} offers {m.unique:4}/{expected:>4} ({pct(m.completeness)})  "
           f"dup {m.found - m.unique:2}  grounded {pct(m.grounded)}  links {m.with_link:4}  "
           f"samples {m.samples_found}/{m.samples_total} (p1 {m.samples_page1_found}/{m.samples_page1_total})  "
           f"pages {m.pages_reached}  llm {m.llm_calls}  more_pages {m.more_pages}  {m.seconds}s  [{m.stop_reason}]")
+    if verbose:
+        for row in m.offers:
+            if not row.grounded:
+                print(f"            not grounded: {row.title!r} | {row.location!r} | {row.link or '(no link)'}")
 
 
 def print_summary(metrics: list[CaseMetrics], skipped: int) -> None:
@@ -189,6 +204,8 @@ def main(runner: Runner = baseline_runner) -> None:
     parser = argparse.ArgumentParser()
     parser.add_argument("--list", choices=["banks_security", "watchmakers"])
     parser.add_argument("--case", help="company name of a single case")
+    parser.add_argument("--verbose", action="store_true", help="print the titles that are not grounded")
+    parser.add_argument("--report", type=Path, help="write the metrics and extracted offers to this JSON file")
     args = parser.parse_args()
 
     cases = [c for c in load_cases()
@@ -202,8 +219,12 @@ def main(runner: Runner = baseline_runner) -> None:
             continue
         m = measure(case, result, time.perf_counter() - start)
         metrics.append(m)
-        print_case(m)
+        print_case(m, args.verbose)
     print_summary(metrics, skipped)
+    if args.report:
+        args.report.write_text(json.dumps([m.model_dump() for m in metrics], ensure_ascii=False, indent=2),
+                               encoding="utf-8")
+        print(f"report: {args.report}")
 
 
 if __name__ == "__main__":
