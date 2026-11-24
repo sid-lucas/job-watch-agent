@@ -1,4 +1,4 @@
-from typing import TypedDict
+from typing import TypedDict, NotRequired
 
 
 class Offer(TypedDict):
@@ -11,6 +11,11 @@ class Offer(TypedDict):
     link: str            # tracking parameters removed
     published: str       # publication date from the source
     fetched: str         # date the offer was collected
+
+    # Filled by apply_flags
+    score: NotRequired[int]
+    reasons: NotRequired[list[str]]   # why the score is what it is
+    status: NotRequired[str]          # "new" or "rejected"
 
 
 class JobState(TypedDict):
