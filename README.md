@@ -32,8 +32,14 @@ GEMINI_API_KEY=...
 ## Project structure
 
 ```
-job_watch/              application code (graph, nodes, storage, registry, web access, browser, LLM judges)
-scripts/                registry building and maintenance scripts, tests of the LLM judge
+job_watch/              application code (package)
+  offers/               V1 pipeline: RSS -> filter -> flags -> SQLite
+  registry/             V1.1 career sites registry (storage, resolution rules, verification)
+  judges/               LLM judges (career pages, offers)
+  web/                  web access (robots.txt, fetching), headless browser, web search
+  config.py, llm.py     technical settings, shared LLM client
+scripts/                entry points for registry building and maintenance, statistics
+evals/                  evaluations that call a real LLM (page judge test set)
 docs/                   design notes
 data/                   local database and registry (not committed)
 main.py                 entry point
@@ -59,7 +65,7 @@ python -m scripts.verify_registry      # confirm the job lists with the LLM page
 python -m scripts.show_registry        # overview of the registry (read only)
 ```
 
-`python -m scripts.check_page_judge` runs the judge on pages verified by hand.
+`python -m evals.check_page_judge` runs the judge on pages verified by hand.
 
 Rules (keywords, companies, aliases, reject and score rules) are set in `user_config.py`.
 

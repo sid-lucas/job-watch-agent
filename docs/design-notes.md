@@ -10,8 +10,10 @@ How things work and why they were built this way. Unordered notes, updated along
 
 ## Project layout
 
-- `job_watch/`: application code (package). `main.py` and `scripts/`: entry points.
-- Everything runs from the project root (`python main.py`, `python -m scripts.<name>`), so imports work without `sys.path` changes.
+- `job_watch/`: application code (package), split by feature: `offers/` (V1 pipeline), `registry/` (V1.1 career sites registry), `judges/` (LLM judges), `web/` (web access, browser, search). `config.py` and `llm.py` stay at the top level, shared by all.
+- `main.py` and `scripts/`: entry points.
+- Rule: the logic lives in `job_watch/`; scripts only call it (load the registry, loop, ask for confirmation, print) and never import another script. `evals/` holds evaluations that call a real LLM and cost API calls, unlike future unit tests.
+- Everything runs from the project root (`python main.py`, `python -m scripts.<name>`, `python -m evals.<name>`), so imports work without `sys.path` changes.
 
 ## Filtering and scoring (V1)
 
@@ -30,8 +32,8 @@ Why: the RSS feed is incomplete (no location, links that lead to the job list). 
 
 How, in order:
 1. `build_registry`, web search (Serper): finds where to go. One search per company missing from the registry. Only links allowed by robots.txt are kept as candidates. Existing entries are never overwritten.
-2. `resolve_registry`, rules: proposes a job list URL. Rules are applied to the search candidates; when none matches, the company's own career pages are opened in a headless browser (Playwright) and the same rules are applied to their links (buttons, iframes, JavaScript content). Browser results are cached in `discovered`.
-3. `verify_registry`, LLM page judge: confirms or rejects. The judge reads the rendered page and says whether it actually lists job offers. If the rule URL is missing or rejected, the best candidates on the company's own domain are judged too.
+2. `resolve_registry`, rules: proposes a job list URL. Rules are applied to the search candidates; when none matches, the company's own career pages are opened in a headless browser (Playwright) and the same rules are applied to their links (buttons, iframes, JavaScript content). Browser results are cached in `discovered`. Rules in `job_watch/registry/rules.py`.
+3. `verify_registry`, LLM page judge: confirms or rejects. The judge reads the rendered page and says whether it actually lists job offers. If the rule URL is missing or rejected, the best candidates on the company's own domain are judged too. Logic in `job_watch/registry/verify.py`.
 
 Serper and Playwright complement each other: Serper searches the whole web but only knows indexed pages; Playwright only opens a known URL but sees its full content. The rules are cheap and fast; the judge understands the content.
 
@@ -64,7 +66,7 @@ Other choices:
 - `resolved_by` records how the URL was found (`platform rule`, `browser + job subdomain rule`, `candidate judge`...). Entries edited by hand (no `resolved_by`) are never changed; entries verified by the judge are not recomputed by the rules.
 - Aliases (`COMPANY_ALIASES`) avoid paying two searches for the same company.
 - The browser only opens pages on the company's own domain (2 at most), once per company.
-- `scripts/check_page_judge.py` is the judge's test set: pages verified by hand, run again after any change to the judge or the browser.
+- `evals/check_page_judge.py` is the judge's test set: pages verified by hand, run again after any change to the judge or the browser.
 - `scripts/show_registry.py` gives a read-only overview: status, URL, and whether it was confirmed by the judge.
 
 Known limitations:
