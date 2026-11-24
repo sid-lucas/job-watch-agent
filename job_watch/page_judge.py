@@ -1,11 +1,15 @@
 """LLM judge for career pages: does this page list job offers?"""
+import time
 from typing import Literal
 
+from langchain_google_genai.chat_models import GoogleAPIError
 from pydantic import BaseModel, Field
 
 from job_watch.llm import get_llm
 
-MAX_LINKS = 150     # links sent to the LLM, in page order
+MAX_LINKS = 150         # links sent to the LLM, in page order
+LLM_ATTEMPTS = 3        # attempts when the LLM API fails
+LLM_WAIT_SECONDS = 10   # wait between two attempts
 
 
 class PageCheck(BaseModel):
@@ -50,3 +54,15 @@ def judge_page(company: str, page: dict) -> PageCheck:
     if answer.page_type == "job_list":
         answer.jobs_link = ""
     return answer
+
+
+def judge_page_with_retry(company: str, page: dict) -> PageCheck | None:
+    """Call the page judge, waiting and retrying on API errors. Return None if it keeps failing."""
+    for attempt in range(1, LLM_ATTEMPTS + 1):
+        try:
+            return judge_page(company, page)
+        except GoogleAPIError as error:
+            print(f"          LLM error, attempt {attempt}/{LLM_ATTEMPTS}: {str(error)[:80]}")
+            if attempt < LLM_ATTEMPTS:
+                time.sleep(LLM_WAIT_SECONDS)
+    return None

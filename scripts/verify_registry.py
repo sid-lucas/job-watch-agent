@@ -13,36 +13,19 @@ checked against robots.txt first. Outcomes:
   then saved as not_found if it fails again, the cause being kept in the trail
 Entries are marked "candidates_judged" once their candidates have been judged.
 """
-import time
 from datetime import date
-
-from langchain_google_genai.chat_models import GoogleAPIError
 
 from job_watch import web
 from job_watch.browser import render_page
-from job_watch.page_judge import judge_page
+from job_watch.page_judge import judge_page_with_retry
 from job_watch.registry import load_registry, save_registry
 from scripts.resolve_registry import domain_matches
 
 MAX_HOPS = 2            # links followed after the first page
 MAX_CANDIDATES = 3      # candidates judged when the rule URL is missing or rejected
-LLM_ATTEMPTS = 3        # attempts per page when the LLM API fails
-LLM_WAIT_SECONDS = 10   # wait between two attempts
 
 STRONG_WORDS = ("job", "offre", "emploi", "poste", "vacanc", "opening", "opportunit", "stellen")
 WEAK_WORDS = ("career", "carri", "karriere")
-
-
-def judge_with_retry(company: str, page: dict):
-    """Call the page judge, waiting and retrying on API errors. Return None if it keeps failing."""
-    for attempt in range(1, LLM_ATTEMPTS + 1):
-        try:
-            return judge_page(company, page)
-        except GoogleAPIError as error:
-            print(f"          LLM error, attempt {attempt}/{LLM_ATTEMPTS}: {str(error)[:80]}")
-            if attempt < LLM_ATTEMPTS:
-                time.sleep(LLM_WAIT_SECONDS)
-    return None
 
 
 def verify(company: str, start_url: str) -> tuple[str, str | None, list[dict]]:
@@ -62,7 +45,7 @@ def verify(company: str, start_url: str) -> tuple[str, str | None, list[dict]]:
             trail.append({"url": url, "page_type": "not fetched", "reason": "page failed to load"})
             return "retry", None, trail
 
-        answer = judge_with_retry(company, page)
+        answer = judge_page_with_retry(company, page)
         if answer is None:
             trail.append({"url": page["url"], "page_type": "not judged", "reason": "LLM unavailable"})
             return "retry", None, trail
