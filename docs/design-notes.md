@@ -78,6 +78,13 @@ Known limitations:
 - Some job lists cover more than the company (`jobs.admin.ch` for the Cyber-Defence Campus): V1.2 must filter offers by entity.
 - All SuccessFactors career sites seen so far forbid robots (`Disallow: /`).
 
+Found with a second company list (watchmakers, 41 companies: 14 ok, 1 blocked, 26 not_found):
+- Wrong company accepted: a namesake domain passes `domain_matches` and the judge only checks the page type, not who owns it (`richemont.swiss`, a different organisation, accepted for Richemont).
+- Anti-bot protection: many sites refuse headless browsers ("access denied", pages that never load: Swatch Group brands, Hublot, Zenith). Reported as `not_found` although the site was found; never bypassed.
+- Short domains: the domain often carries a short form of the name (`patek.com`, `iwc.com`), which `domain_matches` does not accept.
+- Tracking parameters (`?srsltid=...`) are kept in the saved URLs.
+- Results depend on the sector: rules and test set were tuned on banks and security companies.
+
 ## LLM usage
 
 - One shared cloud client (`job_watch/llm.py`, Gemini), created on first use so that importing a module never requires the API key.
