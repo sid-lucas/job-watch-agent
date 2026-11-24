@@ -1,5 +1,6 @@
 import re
 from datetime import datetime, timezone
+from email.utils import parsedate_to_datetime
 from urllib.parse import urlsplit, urlunsplit
 
 import feedparser
@@ -9,6 +10,14 @@ import config
 from state import JobState, Offer
 
 import storage
+
+
+def to_iso(rss_date: str) -> str:
+    """Convert an RSS date (e.g. 'Sun, 22 Nov 2026 12:56:14 GMT') to ISO 8601."""
+    try:
+        return parsedate_to_datetime(rss_date).isoformat()
+    except (TypeError, ValueError):
+        return ""  # missing or malformed date
 
 
 def parse_title(raw_title: str) -> tuple[str, str]:
@@ -46,7 +55,7 @@ def fetch_rss(state: JobState) -> dict:
             description=html_to_text(entry.get("description", "")),
             source=config.SOURCE_NAME,
             link=clean_link(entry.link),
-            published=entry.get("published", ""),
+            published=to_iso(entry.get("published", "")),
             fetched=fetched,
         ))
 
