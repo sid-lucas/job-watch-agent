@@ -13,9 +13,10 @@ import re
 import unicodedata
 from urllib.parse import urlsplit
 
-from job_watch import config, web
-from job_watch.browser import page_links
-from job_watch.registry import detect_platform, job_list_root, load_registry, save_registry
+from job_watch import config
+from job_watch.web import access as web
+from job_watch.web.browser import page_links
+from job_watch.registry.store import detect_platform, job_list_root, load_registry, save_registry
 
 MAX_BROWSED_PAGES = 2   # company pages opened per entry
 

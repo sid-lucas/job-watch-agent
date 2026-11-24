@@ -15,10 +15,10 @@ Entries are marked "candidates_judged" once their candidates have been judged.
 """
 from datetime import date
 
-from job_watch import web
-from job_watch.browser import render_page
-from job_watch.page_judge import judge_page_with_retry
-from job_watch.registry import load_registry, save_registry
+from job_watch.web import access as web
+from job_watch.web.browser import render_page
+from job_watch.judges.page_judge import judge_page_with_retry
+from job_watch.registry.store import load_registry, save_registry
 from scripts.resolve_registry import domain_matches
 
 MAX_HOPS = 2            # links followed after the first page

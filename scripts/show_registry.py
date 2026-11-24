@@ -1,5 +1,5 @@
 """Show the registry: job list URL and status of each company (read only)."""
-from job_watch.registry import load_registry
+from job_watch.registry.store import load_registry
 
 STATUSES = ("ok", "blocked", "not_found", "to_check")
 

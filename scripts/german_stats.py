@@ -4,8 +4,8 @@ from pathlib import Path
 
 sys.path.append(str(Path(__file__).parent.parent))  # allow imports from the project root
 
-from job_watch.checks import GERMAN_STOPWORDS
-from job_watch.nodes import fetch_rss, filter_keywords
+from job_watch.offers.checks import GERMAN_STOPWORDS
+from job_watch.offers.nodes import fetch_rss, filter_keywords
 
 offers = filter_keywords(fetch_rss({"offers": []}))["offers"]
 

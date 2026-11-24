@@ -1,6 +1,6 @@
 """Check the page judge against pages verified by hand (one LLM call per case)."""
-from job_watch.browser import render_page
-from job_watch.page_judge import judge_page_with_retry
+from job_watch.web.browser import render_page
+from job_watch.judges.page_judge import judge_page_with_retry
 
 # (company, url, is the page a job list?)
 CASES = [

@@ -7,9 +7,9 @@ import feedparser
 from bs4 import BeautifulSoup
 
 from job_watch import config
-from job_watch.state import JobState, Offer
+from job_watch.offers.state import JobState, Offer
 
-from job_watch import storage
+from job_watch.offers import storage
 
 
 def to_iso(rss_date: str) -> str:

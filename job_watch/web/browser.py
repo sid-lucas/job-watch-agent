@@ -2,7 +2,8 @@
 from playwright.sync_api import Error as PlaywrightError
 from playwright.sync_api import sync_playwright
 
-from job_watch import config, web
+from job_watch import config
+from job_watch.web import access as web
 
 RENDER_WAIT_MS = 3000       # extra time for JavaScript to build the page after load
 PAGE_TIMEOUT_MS = 30000

@@ -7,8 +7,10 @@ from datetime import date
 
 from dotenv import load_dotenv
 
-from job_watch import config, search, web
-from job_watch.registry import detect_platform, load_registry, save_registry
+from job_watch import config
+from job_watch.web import access as web
+from job_watch.web import search
+from job_watch.registry.store import detect_platform, load_registry, save_registry
 
 QUERY_SUFFIX = "careers jobs Switzerland"
 

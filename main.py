@@ -2,7 +2,7 @@ from collections import Counter
 from urllib.parse import quote_plus
 
 from job_watch import config
-from job_watch.graph import build_graph
+from job_watch.offers.graph import build_graph
 
 
 def search_link(offer: dict) -> str:
