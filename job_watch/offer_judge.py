@@ -1,13 +1,8 @@
-import os
 from typing import Literal
 
-from dotenv import load_dotenv
-from langchain_google_genai import ChatGoogleGenerativeAI
 from pydantic import BaseModel, Field
 
-from job_watch import config
-
-load_dotenv()
+from job_watch.llm import get_llm
 
 
 class Verification(BaseModel):
@@ -32,15 +27,6 @@ Only use links that appear in the search results.
 Be conservative: a page describing a program, a team or a company is not proof that a position is open.
 When you are not sure, answer 'unknown'."""
 
-llm = ChatGoogleGenerativeAI(
-    model=config.VERIFY_MODEL,
-    google_api_key=os.environ["GEMINI_API_KEY"],
-    temperature=0,
-    timeout=60,
-    max_retries=2,
-)
-structured_llm = llm.with_structured_output(Verification)
-
 
 def judge_offer(offer: dict, results: list[dict], page_text: str) -> Verification:
     """Ask the LLM whether the offer still exists, then check its answer in code."""
@@ -50,6 +36,7 @@ def judge_offer(offer: dict, results: list[dict], page_text: str) -> Verificatio
         f"<search_results>\n{results_text}\n</search_results>\n\n"
         f"<page>\n{page_text}\n</page>"
     )
+    structured_llm = get_llm().with_structured_output(Verification)
     answer = structured_llm.invoke([("system", SYSTEM_PROMPT), ("user", user_prompt)])
 
     # Never trust a link the LLM may have invented: it must come from the search results
