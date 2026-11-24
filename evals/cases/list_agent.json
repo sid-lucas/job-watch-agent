@@ -49,7 +49,7 @@
         {"title": "FX Product Controller", "page": 1},
         {"title": "Cash Manager Private Clients - Lausanne (80-100%)", "page": 3}
       ],
-      "notes": "50 offers per page, 'Next >' button. Offers have no real URL (href=\"#0\"). Each offer has a 'Show more' control that expands its description: not pagination. 'Refine 50 results' is a filter count, not the total. A modal cookie dialog blocks every click; 'Decline all' redirects to the site home page and the dialog comes back on the list, so acceptance was used as fallback. 'Next >' appends 50 offers to the list."
+      "notes": "50 offers per page, 'Next >' button. Each offer has its own URL (PageType=JobDetails&jobid=...); only the 'Next >' control has href=\"#0\". Each offer has a 'Show more' control that expands its description: not pagination. 'Refine 50 results' is a filter count, not the total. A modal cookie dialog blocks every click; 'Decline all' redirects to the site home page and the dialog comes back on the list, so acceptance was used as fallback. 'Next >' appends 50 offers to the list."
     },
     {
       "company": "BCN",
