@@ -7,6 +7,7 @@ Rules, in order of confidence:
 2. a jobs/careers subdomain whose domain matches the company name
 If no search candidate matches, the company's own career pages are opened in a headless
 browser and the same rules are applied to their links (cached in "discovered").
+A job list found but forbidden by robots.txt gets status "blocked".
 """
 import re
 from urllib.parse import urlsplit
@@ -94,22 +95,21 @@ def main():
         url = job_list_root(candidate["url"], candidate["platform"])
         if not web.can_fetch(url):
             url = candidate["url"]
-            if not web.can_fetch(url):
-                continue
         entry["jobs_url"] = url
         entry["platform"] = candidate["platform"]
-        entry["status"] = "ok"
+        entry["status"] = "ok" if web.can_fetch(url) else "blocked"
         entry["resolved_by"] = prefix + rule
 
     save_registry(registry)
 
-    resolved = [c for c, e in registry.items() if e["status"] == "ok"]
+    for status in ("ok", "blocked"):
+        companies = [c for c, e in registry.items() if e["status"] == status]
+        print(f"\n{status.upper()} ({len(companies)})")
+        for company in companies:
+            entry = registry[company]
+            print(f"  {company:26} {entry.get('resolved_by', 'manual'):30} {entry['jobs_url']}")
     pending = [c for c, e in registry.items() if e["status"] == "to_check"]
-    print(f"\n{len(resolved)} resolved, {len(pending)} still to check\n")
-    for company in resolved:
-        entry = registry[company]
-        print(f"  OK  {company:26} {entry.get('resolved_by', 'manual'):30} {entry['jobs_url']}")
-    print("\nStill to check:", ", ".join(pending))
+    print(f"\nTO_CHECK ({len(pending)}):", ", ".join(pending))
 
 
 if __name__ == "__main__":
