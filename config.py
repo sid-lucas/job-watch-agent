@@ -71,11 +71,11 @@ GOOD_COMPANIES = [
 # Reject rules: an offer is rejected if the rule matches
 # A rule uses either a regex "pattern" or a "check" function
 REJECT_RULES = [
-    # If it's a senior position
+    # Senior, management and architecture positions
     {"name": "senior title", "field": "title",
-     "pattern": r"\b(senior|sr\.?|lead|principal|head of|staff)\b"},
+     "pattern": r"\b(senior|sr\.?|lead|principal|head of|staff|manager|director|architect|cto)\b"},
 
-    # If it's a German ad
+    # German ad
     {"name": "german ad", "field": "description",
      "check": is_german_ad},
 ]
@@ -88,8 +88,8 @@ SCORE_RULES = [
      "pattern": r"\b(ai|ml|machine learning|llm) engineer\b"},
 
     # Security related
-    {"name": "soc", "field": "description", "points": 30,
-     "pattern": r"\b(soc|siem|incident response|threat hunting|blue team)\b"},
+    {"name": "security title", "field": "title", "points": 30,
+     "pattern": r"\b(security|cyber|cybersecurity|cybersécurité|sécurité|soc|siem|pentest|threat|iam)\b"},
 
     # Entry-level position
     {"name": "entry-level", "field": "title", "points": 30,
