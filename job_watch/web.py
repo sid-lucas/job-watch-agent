@@ -6,20 +6,21 @@ from bs4 import BeautifulSoup
 
 from job_watch import config
 
+ALLOWED, DISALLOWED, ERROR = "allowed", "disallowed", "error"
 
-def can_fetch(url: str) -> bool:
-    """Return True when the domain is not blocked and its robots.txt allows this URL."""
-    parts = urlsplit(url)
-    domain = parts.netloc.lower()
-    if any(domain == d or domain.endswith("." + d) for d in config.BLOCKED_DOMAINS):
-        return False
+# robots.txt parsed per site during a run; failed downloads are not cached, so they are retried
+_robots_cache: dict[str, RobotFileParser] = {}
 
-    robots_url = f"{parts.scheme}://{parts.netloc}/robots.txt"
+
+def _load_robots(base_url: str) -> RobotFileParser | None:
+    """Return the parsed robots.txt of a site, or None if it could not be read."""
+    if base_url in _robots_cache:
+        return _robots_cache[base_url]
     try:
-        response = requests.get(robots_url, headers={"User-Agent": config.USER_AGENT},
+        response = requests.get(f"{base_url}/robots.txt", headers={"User-Agent": config.USER_AGENT},
                                 timeout=config.ROBOTS_TIMEOUT)
     except requests.RequestException:
-        return False  # robots.txt unreachable: do not fetch
+        return None                              # unreachable: unknown, maybe temporary
 
     robots = RobotFileParser()
     if response.status_code == 404:
@@ -27,8 +28,27 @@ def can_fetch(url: str) -> bool:
     elif response.ok:
         robots.parse(response.text.splitlines())
     else:
-        return False                             # other errors: do not fetch
-    return robots.can_fetch(config.USER_AGENT, url)
+        return None                              # other errors: unknown, maybe temporary
+    _robots_cache[base_url] = robots
+    return robots
+
+
+def robots_status(url: str) -> str:
+    """Return ALLOWED, DISALLOWED (blocked domain or robots.txt rule) or ERROR (robots.txt unreadable)."""
+    parts = urlsplit(url)
+    domain = parts.netloc.lower()
+    if any(domain == d or domain.endswith("." + d) for d in config.BLOCKED_DOMAINS):
+        return DISALLOWED
+
+    robots = _load_robots(f"{parts.scheme}://{parts.netloc}")
+    if robots is None:
+        return ERROR
+    return ALLOWED if robots.can_fetch(config.USER_AGENT, url) else DISALLOWED
+
+
+def can_fetch(url: str) -> bool:
+    """Return True only when the URL is explicitly allowed. Errors are treated as not allowed."""
+    return robots_status(url) == ALLOWED
 
 
 def fetch_text(url: str) -> str:
