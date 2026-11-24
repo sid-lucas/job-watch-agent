@@ -1,9 +1,18 @@
 """Technical settings. Personal settings are in user_config.py (see user_config.example.py)."""
 from pathlib import Path
+try:
+    from user_config import (
+        MIN_SCORE, MAX_DISPLAY, MIN_VERIFY_SCORE, MAX_VERIFY_PER_RUN,
+        KEYWORDS, TOP_COMPANIES, GOOD_COMPANIES, COMPANY_ALIASES,
+        REJECT_RULES, SCORE_RULES,
+    )
+except ImportError:
+    raise SystemExit("Missing user_config.py: copy user_config.example.py to user_config.py and edit it.")
 
 # Paths
 BASE_DIR = Path(__file__).parent.parent
 DB_PATH = BASE_DIR / "data" / "offers.db"
+REGISTRY_PATH = BASE_DIR / "data" / "career_sites.json"
 
 # RSS source
 FEED_URL = "https://swissdevjobs.ch/rss"
