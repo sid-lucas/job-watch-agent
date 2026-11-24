@@ -1,13 +1,16 @@
 """Choose the job list URL of each registry entry automatically.
 
-Only entries with status "to_check" are changed. Rules, in order of confidence:
+Entries with status "to_check" and entries already resolved by a rule are (re)computed.
+Entries edited by hand (no "resolved_by") are never changed.
+Rules, in order of confidence:
 1. a candidate hosted on a known recruiting platform
 2. a jobs/careers subdomain whose domain matches the company name
 """
 import re
 from urllib.parse import urlsplit
 
-from job_watch.registry import load_registry, save_registry
+from job_watch import web
+from job_watch.registry import job_list_root, load_registry, save_registry
 
 
 def normalize(name: str) -> str:
@@ -54,15 +57,19 @@ def main():
     registry = load_registry()
 
     for company, entry in registry.items():
-        if entry["status"] != "to_check":
-            continue
+        if entry["status"] != "to_check" and "resolved_by" not in entry:
+            continue    # edited by hand
         result = resolve(company, entry)
-        if result:
-            candidate, rule = result
-            entry["jobs_url"] = candidate["url"]
-            entry["platform"] = candidate["platform"]
-            entry["status"] = "ok"
-            entry["resolved_by"] = rule
+        if not result:
+            continue
+        candidate, rule = result
+        url = job_list_root(candidate["url"], candidate["platform"])
+        if url != candidate["url"] and not web.can_fetch(url):
+            url = candidate["url"]      # root not allowed by robots.txt, keep the original
+        entry["jobs_url"] = url
+        entry["platform"] = candidate["platform"]
+        entry["status"] = "ok"
+        entry["resolved_by"] = rule
 
     save_registry(registry)
 
@@ -71,7 +78,7 @@ def main():
     print(f"{len(resolved)} resolved, {len(pending)} still to check\n")
     for company in resolved:
         entry = registry[company]
-        print(f"  OK  {company:26} {entry['resolved_by']:20} {entry['jobs_url']}")
+        print(f"  OK  {company:26} {entry.get('resolved_by', 'manual'):20} {entry['jobs_url']}")
     print("\nStill to check:", ", ".join(pending))
 
 
