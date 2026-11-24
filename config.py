@@ -12,6 +12,10 @@ DB_PATH = Path(__file__).parent / "data" / "offers.db"
 MIN_VERIFY_SCORE = 30       # only offers with at least this score are verified
 MAX_VERIFY_PER_RUN = 10     # hard limit of web searches per run (Serper credits)
 
+# Web access
+USER_AGENT = "job-watch/0.1 (personal job search project)"
+MAX_PAGE_CHARS = 8000   # page text is truncated to this size
+
 # RSS source
 FEED_URL = "https://swissdevjobs.ch/rss"
 SOURCE_NAME = "swissdevjobs"
