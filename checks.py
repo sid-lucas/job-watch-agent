@@ -14,3 +14,7 @@ def is_german_ad(text: str, threshold: float = 0.04) -> bool:
         return False
     hits = sum(word in GERMAN_STOPWORDS for word in words)
     return hits / len(words) > threshold
+
+def names_pattern(names: list[str]) -> str:
+    """Build a whole-word regex matching any of the given names."""
+    return r"\b(" + "|".join(re.escape(name) for name in names) + r")\b"
