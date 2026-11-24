@@ -1,10 +1,12 @@
 """Headless browser access: render a page (JavaScript included), get its text and links."""
 from playwright.sync_api import Error as PlaywrightError
 from playwright.sync_api import sync_playwright
+from playwright.sync_api import TimeoutError as PlaywrightTimeoutError
 
 from job_watch import config
 from job_watch.web import access as web
 
+LOAD_WAIT_MS = 15000        # max wait for the "load" event; heavy pages that never fire it are used as they are
 RENDER_WAIT_MS = 3000       # extra time for JavaScript to build the page after load
 PAGE_TIMEOUT_MS = 30000
 
@@ -26,6 +28,10 @@ def render_page(url: str) -> dict | None:
             page = browser.new_page(user_agent=config.USER_AGENT)
             # "load" waits for every resource and can time out on heavy pages that are already usable
             page.goto(url, wait_until="domcontentloaded", timeout=PAGE_TIMEOUT_MS)
+            try:
+                page.wait_for_load_state("load", timeout=LOAD_WAIT_MS)
+            except PlaywrightTimeoutError:
+                pass    # page already usable (e.g. Oracle EU cloud never fires "load")
             page.wait_for_timeout(RENDER_WAIT_MS)
             final_url = page.url
             text = page.inner_text("body")

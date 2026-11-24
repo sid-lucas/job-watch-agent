@@ -32,7 +32,10 @@ def verify(company: str, start_url: str) -> tuple[str, str | None, list[dict]]:
         if answer is None:
             trail.append({"url": page["url"], "page_type": "not judged", "reason": "LLM unavailable"})
             return "retry", None, trail
-        trail.append({"url": page["url"], "page_type": answer.page_type, "reason": answer.reason})
+        trail.append({"url": page["url"], "page_type": answer.page_type,
+                      "owner": answer.owner_matches, "reason": answer.reason})
+        if answer.owner_matches == "no":
+            return "not_found", None, trail     # page of another organisation: never accepted
         if answer.page_type == "job_list":
             return "ok", page["url"], trail
         if not answer.jobs_link or answer.jobs_link in visited or hop == MAX_HOPS:

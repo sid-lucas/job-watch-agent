@@ -22,6 +22,9 @@ COMPANY_DOMAINS = {}
 # Alternative names of the same company (canonical name -> aliases), searched only once
 COMPANY_ALIASES = {}
 
+# Short description of a company, for names shared with other organisations (used by the page judge)
+COMPANY_CONTEXT = {}
+
 # Reject rules: an offer is rejected if the rule matches (regex "pattern" or "check" function)
 REJECT_RULES = [
     {"name": "senior title", "field": "title",
