@@ -8,6 +8,10 @@ MAX_DISPLAY = 10    # maximum number of offers displayed
 # Local database
 DB_PATH = Path(__file__).parent / "data" / "offers.db"
 
+# Verification
+MIN_VERIFY_SCORE = 30       # only offers with at least this score are verified
+MAX_VERIFY_PER_RUN = 10     # hard limit of web searches per run (Serper credits)
+
 # RSS source
 FEED_URL = "https://swissdevjobs.ch/rss"
 SOURCE_NAME = "swissdevjobs"
