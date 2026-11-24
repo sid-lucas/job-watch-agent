@@ -3,6 +3,19 @@
 Job monitoring system for IT positions in Switzerland.
 It collects job offers from authorized sources, filters and scores them against a candidate profile, and prepares application drafts for human review.
 
+## Usage
+
+```bash
+python3 -m venv .venv
+source .venv/bin/activate
+pip install -r requirements.txt
+
+python main.py
+```
+
+Each run fetches the RSS feed, filters and scores the offers, stores them in `data/offers.db`, and lists the best new offers since the last run.
+Rules (keywords, companies, reject and score rules) are set in `config.py`.
+
 ## Ideas
 
 ### Collection
