@@ -3,18 +3,51 @@
 Job monitoring system for IT positions in Switzerland.
 It collects job offers from authorized sources, filters and scores them against a candidate profile, and prepares application drafts for human review.
 
+## Setup
+
+```bash
+git clone git@github.com:sid-lucas/job-watch-agent.git
+cd job-watch-agent
+python -m venv .venv
+source .venv/bin/activate
+pip install -r requirements.txt
+```
+
+Personal settings (keywords, target companies, scoring rules):
+
+```bash
+cp user_config.example.py user_config.py
+```
+
+Then edit `user_config.py`. This file is not committed: each user keeps their own.
+
+API keys go in a `.env` file at the project root (not committed):
+
+```
+SERPER_API_KEY=...
+GEMINI_API_KEY=...
+```
+
+## Project structure
+
+```
+job_watch/              application code (graph, nodes, storage, web access, LLM judge)
+scripts/                exploration and maintenance scripts
+data/                   local database and registry (not committed)
+main.py                 entry point
+user_config.example.py  template for personal settings
+```
+
+Run everything from the project root: `python main.py`, and `python -m scripts.<name>` for scripts.
+
 ## Usage
 
 ```bash
-python3 -m venv .venv
-source .venv/bin/activate
-pip install -r requirements.txt
-
 python main.py
 ```
 
 Each run fetches the RSS feed, filters and scores the offers, stores them in `data/offers.db`, and lists the best new offers since the last run.
-Rules (keywords, companies, reject and score rules) are set in `config.py`.
+Rules (keywords, companies, reject and score rules) are set in `user_config.py`.
 
 ## Ideas
 
