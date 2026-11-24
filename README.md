@@ -20,13 +20,13 @@ Rules (keywords, companies, reject and score rules) are set in `config.py`.
 
 ### Collection
 - Read job offers from the swissdevjobs.ch RSS feed
-- Read job alert e-mails from jobs.ch, jobup.ch and emploi-it.ch
+- Read job alert e-mails from LinkedIn, jobs.ch, jobup.ch, emploi-it.ch and Indeed
 - Keep only offers related to IT
 - Remove offers already seen
 
 ### Scoring
-- Red flags that remove an offer (e.g. outside Switzerland, fluent German required)
-- Green flags that raise the score (e.g. junior/graduate, Geneva or Zurich, large company)
+- Red flags that remove an offer (e.g. senior/management title, ad written in German)
+- Green flags that raise the score (e.g. junior/graduate, Geneva or Zurich, top company)
 - Matching against local documents (CV, letters, transcripts) with a local LLM only
 - Score with the reasons behind it
 
@@ -43,6 +43,8 @@ Rules (keywords, companies, reject and score rules) are set in `config.py`.
 - Personal documents never sent to a cloud model
 - Job offers treated as untrusted input (prompt injection)
 - Each agent gets only the tools it needs
+- The verification agent reads the web but has no access to personal documents
+- Web pages are only fetched when the site's robots.txt allows it
 - E-mail access limited to a dedicated address
 
 ## Roadmap
@@ -52,8 +54,9 @@ Sources → filter → merge duplicates → flags → verify (top offers) → AI
 ```
 
 - **V1:** swissdevjobs RSS, keyword filter, deduplication, red/green flags, SQLite storage
-- **V1.1:** job alert e-mails (LinkedIn, jobup.ch, jobs.ch, emploi-it.ch, Indeed)
-- **V1.2:** check that the best offers still exist on the company's career site, and get the full description and official link
+- **V1.1:** check that the best offers still exist on the company's career site, and get the full description and official link
+- **V1.2:** job alert e-mails (LinkedIn, jobup.ch, jobs.ch, emploi-it.ch, Indeed)
+- **V1.3:** watch the career pages of target companies for new IT offers
 - **V2:** local AI matching against personal documents, with a score and reasons
 - **V3:** notification of the best offers
 - **V4:** CV and cover letter drafts, with human validation
