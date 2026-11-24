@@ -111,6 +111,6 @@ SCORE_RULES = [
      "pattern": r"\b(german|deutsch|allemand)\b"},
 
     # Internship / student position
-    {"name": "internship", "field": "title", "points": -20,
+    {"name": "internship", "field": "title", "points": -10,
      "pattern": r"\b(intern|internship|stage|stagiaire|praktikum)\b"},
 ]

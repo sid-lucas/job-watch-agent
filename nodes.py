@@ -63,3 +63,34 @@ def filter_keywords(state: JobState) -> dict:
 
     print(f"filter_keywords: {len(kept)} / {len(state['offers'])} offers kept")
     return {"offers": kept}
+
+def rule_matches(rule: dict, offer: Offer) -> bool:
+    """Return True when a rule matches its field of the offer."""
+    text = offer[rule["field"]]    
+    if "check" in rule:
+        return rule["check"](text)
+    return re.search(rule["pattern"], text, re.IGNORECASE) is not None
+
+
+def apply_flags(state: JobState) -> dict:
+    """Node: reject offers with red flags, score the others."""
+    offers = []
+    for original in state["offers"]:
+        offer = dict(original)  # work on a copy, never modify the input state
+
+        rejected_by = [r["name"] for r in config.REJECT_RULES if rule_matches(r, offer)]
+        if rejected_by:
+            offer["status"] = "rejected"
+            offer["score"] = 0
+            offer["reasons"] = [f"rejected: {name}" for name in rejected_by]
+        else:
+            matched = [r for r in config.SCORE_RULES if rule_matches(r, offer)]
+            offer["status"] = "new"
+            offer["score"] = sum(r["points"] for r in matched)
+            offer["reasons"] = [f"{r['name']} ({r['points']:+d})" for r in matched]
+
+        offers.append(offer)
+
+    kept = sum(1 for o in offers if o["status"] == "new")
+    print(f"apply_flags: {kept} kept, {len(offers) - kept} rejected")
+    return {"offers": offers}
