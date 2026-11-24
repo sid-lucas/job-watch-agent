@@ -1,33 +1,44 @@
-"""Shared cloud LLM access. Only public web data is sent: never personal documents."""
+"""Shared LLM access for public web data: cloud models first, a local model as last resort.
+Personal documents are never sent through this module."""
 import os
 import time
 from functools import cache
 
 from dotenv import load_dotenv
 from langchain_google_genai import ChatGoogleGenerativeAI
-from langchain_google_genai.chat_models import GoogleAPIError
+from langchain_ollama import ChatOllama
 
 from job_watch import config
 
 load_dotenv()
 
+GEMINI_TIMEOUT = 30     # seconds; an overloaded cloud model is replaced by the next one in the chain
 
-def _client(model: str) -> ChatGoogleGenerativeAI:
-    # One quick internal retry only: an overloaded model is replaced by the next one instead
-    return ChatGoogleGenerativeAI(
-        model=model,
-        google_api_key=os.environ["GEMINI_API_KEY"],
-        timeout=60,
-        max_retries=1,
-    )
+
+def _client(provider: str, model: str):
+    if provider == "gemini":
+        return ChatGoogleGenerativeAI(model=model, google_api_key=os.environ["GEMINI_API_KEY"],
+                                      timeout=GEMINI_TIMEOUT, max_retries=1)
+    if provider == "ollama":
+        # Reasoning disabled: not supported together with structured output
+        return ChatOllama(model=model, num_ctx=config.OLLAMA_NUM_CTX, temperature=0, reasoning=False)
+    raise ValueError(f"Unknown LLM provider: {provider}")
+
+
+def llm_chain() -> list[tuple[str, str]]:
+    """LLM_CHAIN from config, or only one provider when LLM_ONLY is set (e.g. LLM_ONLY=ollama)."""
+    only = os.environ.get("LLM_ONLY")
+    chain = [(p, m) for p, m in config.LLM_CHAIN if not only or p == only]
+    if not chain:
+        raise ValueError(f"No model left in LLM_CHAIN for LLM_ONLY={only}")
+    return chain
 
 
 @cache
 def structured_llm(schema):
-    """Main model with fallback models, all returning the given Pydantic schema."""
-    models = [config.VERIFY_MODEL] + config.LLM_FALLBACK_MODELS
-    runnables = [_client(model).with_structured_output(schema) for model in models]
-    return runnables[0].with_fallbacks(runnables[1:])
+    """Models of the chain, each returning the given Pydantic schema, tried in order."""
+    runnables = [_client(provider, model).with_structured_output(schema) for provider, model in llm_chain()]
+    return runnables[0].with_fallbacks(runnables[1:]) if len(runnables) > 1 else runnables[0]
 
 
 def call_with_retry(func, *args, attempts: int = 2, wait_seconds: int = 5):
@@ -36,8 +47,9 @@ def call_with_retry(func, *args, attempts: int = 2, wait_seconds: int = 5):
     for attempt in range(1, attempts + 1):
         try:
             return func(*args)
-        except GoogleAPIError as error:
-            print(f"          LLM error (all models), attempt {attempt}/{attempts}: {str(error)[:80]}")
+        except Exception as error:   # any provider error; the type is printed so bugs stay visible
+            print(f"          LLM error (all models), attempt {attempt}/{attempts}: "
+                  f"{type(error).__name__}: {str(error)[:80]}")
             if attempt < attempts:
                 time.sleep(wait_seconds)
     return None

@@ -16,15 +16,17 @@ BASE_DIR = Path(__file__).parent.parent
 DB_PATH = BASE_DIR / "data" / "offers.db"
 REGISTRY_PATH = BASE_DIR / "data" / "career_sites.json"
 
-# Tried in order when the main model fails (overload, quota); public data only
-LLM_FALLBACK_MODELS = ["gemini-3.1-flash-lite", "gemini-2.5-flash-lite"]
+# LLM chain for public web data, tried in order: (provider, model)
+LLM_CHAIN = [
+    ("gemini", "gemini-3.5-flash-lite"),
+    ("gemini", "gemini-3.1-flash-lite"),
+    ("ollama", "qwen3:8b"),
+]
+OLLAMA_NUM_CTX = 24576   # context size in tokens; fits a 30000-character page in 11 GB of VRAM
 
 # RSS source
 FEED_URL = "https://swissdevjobs.ch/rss"
 SOURCE_NAME = "swissdevjobs"
-
-# Verification LLM (public data only, so a cloud model is acceptable)
-VERIFY_MODEL = "gemini-3.5-flash-lite"
 
 # Web access
 USER_AGENT = "job-watch/0.1 (personal job search project)"
