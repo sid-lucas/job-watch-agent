@@ -7,7 +7,7 @@ GERMAN_STOPWORDS = {
 }
 
 
-def is_german_ad(text: str, threshold: float = 0.04) -> bool:
+def is_german_ad(text: str, threshold: float = 0.08) -> bool:
     """Return True when the text is mostly written in German."""
     words = re.findall(r"\b\w+\b", text.lower())
     if not words:
