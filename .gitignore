@@ -4,6 +4,9 @@
 # Python cache
 __pycache__/
 
+# Personal settings (template: user_config.example.py)
+user_config.py
+
 # Local data (database, personal documents)
 data/*
 !data/.gitkeep
