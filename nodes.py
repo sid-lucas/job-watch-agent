@@ -129,6 +129,7 @@ def deduplicate(state: JobState) -> dict:
 
 def save_results(state: JobState) -> dict:
     """Node: store offers in the local database (already known offers are skipped)."""
-    new = storage.save_offers(state["offers"])
-    print(f"save_results: {new} new offers stored, {len(state['offers']) - new} already known")
-    return {}
+    new_links = storage.save_offers(state["offers"])
+    print(f"save_results: {len(new_links)} new offers stored, "
+          f"{len(state['offers']) - len(new_links)} already known")
+    return {"new_links": new_links}

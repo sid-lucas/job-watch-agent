@@ -27,10 +27,12 @@ def connect() -> sqlite3.Connection:
     return conn
 
 
-def save_offers(offers: list[dict]) -> int:
-    """Insert offers not already in the database. Return the number of new offers."""
+def save_offers(offers: list[dict]) -> list[str]:
+    """Insert offers not already in the database. Return the links of the new offers."""
     conn = connect()
-    before = conn.total_changes
+    existing = {row[0] for row in conn.execute("SELECT link FROM offers")}
+    new_offers = [o for o in offers if o["link"] not in existing]
+
     conn.executemany(
         """
         INSERT OR IGNORE INTO offers
@@ -42,10 +44,9 @@ def save_offers(offers: list[dict]) -> int:
             (o["link"], o["title"], o["company"], o["location"], o["description"],
              o["source"], o["published"], o["fetched"], o.get("score"),
              json.dumps(o.get("reasons", [])), o.get("status", "new"))
-            for o in offers
+            for o in new_offers
         ],
     )
     conn.commit()
-    new = conn.total_changes - before
     conn.close()
-    return new
+    return [o["link"] for o in new_offers]
