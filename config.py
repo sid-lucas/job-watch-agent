@@ -4,6 +4,10 @@ from pathlib import Path
 # Verification LLM (public data only, so a cloud model is acceptable)
 VERIFY_MODEL = "gemini-3.5-flash-lite"
 
+# Domains never fetched, whatever their robots.txt says (terms of use forbid automated access)
+BLOCKED_DOMAINS = ["jobs.ch", "jobup.ch", "jobscout24.ch", "linkedin.com", "indeed.com"]
+ROBOTS_TIMEOUT = 10   # seconds
+
 # Display
 MIN_SCORE = 20      # new offers below this score are not displayed
 MAX_DISPLAY = 10    # maximum number of offers displayed
