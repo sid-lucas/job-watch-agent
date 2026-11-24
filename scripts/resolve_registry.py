@@ -10,9 +10,10 @@ browser and the same rules are applied to their links (cached in "discovered").
 A job list found but forbidden by robots.txt gets status "blocked".
 """
 import re
+import unicodedata
 from urllib.parse import urlsplit
 
-from job_watch import web
+from job_watch import config, web
 from job_watch.browser import page_links
 from job_watch.registry import detect_platform, job_list_root, load_registry, save_registry
 
@@ -20,8 +21,9 @@ MAX_BROWSED_PAGES = 2   # company pages opened per entry
 
 
 def normalize(name: str) -> str:
-    # "Kudelski Security" -> "kudelskisecurity", "Swiss Post" -> "swisspost"
-    return re.sub(r"[^a-z0-9]", "", name.lower())
+    # "État de Genève" -> "etatdegeneve", "swisspost-cybersecurity" -> "swisspostcybersecurity"
+    ascii_text = unicodedata.normalize("NFKD", name).encode("ascii", "ignore").decode()
+    return re.sub(r"[^a-z0-9]", "", ascii_text.lower())
 
 
 def shortest_path(candidates: list[dict]) -> dict:
@@ -30,10 +32,23 @@ def shortest_path(candidates: list[dict]) -> dict:
 
 
 def domain_matches(url: str, names: list[str]) -> bool:
-    labels = urlsplit(url).netloc.lower().split(".")
+    netloc = urlsplit(url).netloc.lower()
+
+    # Domains declared in user_config, for names that do not appear in the domain
+    for name in names:
+        for domain in config.COMPANY_DOMAINS.get(name, []):
+            if netloc == domain or netloc.endswith("." + domain):
+                return True
+
+    labels = [normalize(label) for label in netloc.split(".")]
     for name in map(normalize, names):
-        # Exact label for short names (ITU, CERN), substring for longer ones
-        if any(label == name or (len(name) >= 5 and name in label) for label in labels):
+        if not name:
+            continue
+        if len(name) < 5:
+            # Short names (ITU, Syz) must start a domain label, to avoid matches inside unrelated words
+            if any(label.startswith(name) for label in labels):
+                return True
+        elif any(name in label for label in labels):
             return True
     return False
 

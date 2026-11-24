@@ -16,6 +16,12 @@ KEYWORDS = ["security", "cyber", "soc", "siem", "pentest"]
 TOP_COMPANIES = ["Example Bank", "Example Security Company"]
 GOOD_COMPANIES = ["Example Consulting"]
 
+# Domains owned by a company when its name does not appear in them (canonical name -> domains)
+COMPANY_DOMAINS = {}
+
+# Alternative names of the same company (canonical name -> aliases), searched only once
+COMPANY_ALIASES = {}
+
 # Reject rules: an offer is rejected if the rule matches (regex "pattern" or "check" function)
 REJECT_RULES = [
     {"name": "senior title", "field": "title",

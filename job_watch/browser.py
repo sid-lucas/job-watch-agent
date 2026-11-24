@@ -23,7 +23,8 @@ def render_page(url: str) -> dict | None:
         browser = p.chromium.launch(headless=True)
         try:
             page = browser.new_page(user_agent=config.USER_AGENT)
-            page.goto(url, wait_until="load", timeout=PAGE_TIMEOUT_MS)
+            # "load" waits for every resource and can time out on heavy pages that are already usable
+            page.goto(url, wait_until="domcontentloaded", timeout=PAGE_TIMEOUT_MS)
             page.wait_for_timeout(RENDER_WAIT_MS)
             final_url = page.url
             text = page.inner_text("body")

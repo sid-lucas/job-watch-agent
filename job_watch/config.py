@@ -1,13 +1,15 @@
 """Technical settings. Personal settings are in user_config.py (see user_config.example.py)."""
 from pathlib import Path
 try:
-    from user_config import (
-        MIN_SCORE, MAX_DISPLAY, MIN_VERIFY_SCORE, MAX_VERIFY_PER_RUN,
-        KEYWORDS, TOP_COMPANIES, GOOD_COMPANIES, COMPANY_ALIASES,
-        REJECT_RULES, SCORE_RULES,
-    )
-except ImportError:
+    import user_config  # noqa: F401
+except ModuleNotFoundError:
     raise SystemExit("Missing user_config.py: copy user_config.example.py to user_config.py and edit it.")
+
+from user_config import (
+    MIN_SCORE, MAX_DISPLAY, MIN_VERIFY_SCORE, MAX_VERIFY_PER_RUN,
+    KEYWORDS, TOP_COMPANIES, GOOD_COMPANIES, COMPANY_ALIASES, COMPANY_DOMAINS,
+    REJECT_RULES, SCORE_RULES,
+)
 
 # Paths
 BASE_DIR = Path(__file__).parent.parent
