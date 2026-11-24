@@ -77,6 +77,8 @@ def main():
     for company, entry in registry.items():
         if entry["status"] != "to_check" and "resolved_by" not in entry:
             continue    # edited by hand
+        if "verified" in entry:
+            continue    # decided by the page judge (verify_registry)
         names = [company] + entry.get("aliases", [])
 
         result = resolve(entry["candidates"], names)
