@@ -2,7 +2,7 @@ from typing import Literal
 
 from pydantic import BaseModel, Field
 
-from job_watch.llm import get_llm
+from job_watch.llm import structured_llm
 
 
 class Verification(BaseModel):
@@ -36,8 +36,7 @@ def judge_offer(offer: dict, results: list[dict], page_text: str) -> Verificatio
         f"<search_results>\n{results_text}\n</search_results>\n\n"
         f"<page>\n{page_text}\n</page>"
     )
-    structured_llm = get_llm().with_structured_output(Verification)
-    answer = structured_llm.invoke([("system", SYSTEM_PROMPT), ("user", user_prompt)])
+    answer = structured_llm(Verification).invoke([("system", SYSTEM_PROMPT), ("user", user_prompt)])
 
     # Never trust a link the LLM may have invented: it must come from the search results
     allowed_links = {r["link"] for r in results}

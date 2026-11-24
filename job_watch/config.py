@@ -16,6 +16,9 @@ BASE_DIR = Path(__file__).parent.parent
 DB_PATH = BASE_DIR / "data" / "offers.db"
 REGISTRY_PATH = BASE_DIR / "data" / "career_sites.json"
 
+# Tried in order when the main model fails (overload, quota); public data only
+LLM_FALLBACK_MODELS = ["gemini-3.1-flash-lite", "gemini-2.5-flash-lite"]
+
 # RSS source
 FEED_URL = "https://swissdevjobs.ch/rss"
 SOURCE_NAME = "swissdevjobs"

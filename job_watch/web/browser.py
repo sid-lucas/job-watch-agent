@@ -14,7 +14,7 @@ LINKS_JS = "els => els.map(e => ({text: (e.innerText || '').trim(), url: e.href}
 FRAMES_JS = "els => els.map(e => ({text: 'iframe', url: e.src}))"
 
 
-def render_page(url: str) -> dict | None:
+def render_page(url: str, max_chars: int = config.MAX_PAGE_CHARS) -> dict | None:
     """Render a page and return {url, text, links}, or None if forbidden or failed.
 
     url is the final URL after redirects; links are {text, url} with absolute URLs.
@@ -49,7 +49,7 @@ def render_page(url: str) -> dict | None:
             seen.add(link["url"])
             unique_links.append({"text": link["text"][:100], "url": link["url"]})
 
-    return {"url": final_url, "text": text[:config.MAX_PAGE_CHARS], "links": unique_links}
+    return {"url": final_url, "text": text[:max_chars], "links": unique_links}
 
 
 def page_links(url: str) -> list[str]:
