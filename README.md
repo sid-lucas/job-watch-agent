@@ -19,8 +19,10 @@ Rules (keywords, companies, reject and score rules) are set in `config.py`.
 ## Ideas
 
 ### Collection
+- Read the job lists of the target companies' career sites (main source)
 - Read job offers from the swissdevjobs.ch RSS feed
 - Read job alert e-mails from LinkedIn, jobs.ch, jobup.ch, emploi-it.ch and Indeed
+- Only fetch pages allowed by robots.txt, never sites whose terms forbid automated access
 - Keep only offers related to IT
 - Remove offers already seen
 
@@ -50,19 +52,22 @@ Rules (keywords, companies, reject and score rules) are set in `config.py`.
 ## Roadmap
 
 ```
-Sources → filter → merge duplicates → flags → verify (top offers) → AI matching → save → notify → human review
+Sources (career sites, RSS, e-mails) → filter → merge duplicates → flags → verify → AI matching → save → notify → human review
 ```
 
 - **V1:** swissdevjobs RSS, keyword filter, deduplication, red/green flags, SQLite storage
-- **V1.1:** check that the best offers still exist on the company's career site, and get the full description and official link
-- **V1.2:** job alert e-mails (LinkedIn, jobup.ch, jobs.ch, emploi-it.ch, Indeed)
-- **V1.3:** watch the career pages of target companies for new IT offers
+- **V1.1:** registry of the target companies' career sites (job list URL, recruiting platform, robots.txt check)
+- **V1.2:** read the job lists of the registered career sites (headless browser + LLM extraction), as the main source of offers
+- **V1.3:** verify offers from other sources against the career sites (registry lookup, or on-demand search for unknown companies)
+- **V1.4:** job alert e-mails (LinkedIn, jobup.ch, jobs.ch, emploi-it.ch, Indeed)
 - **V2:** local AI matching against personal documents, with a score and reasons
 - **V3:** notification of the best offers
 - **V4:** CV and cover letter drafts, with human validation
 - **V5:** security hardening (Docker, prompt injection tests)
+- **Later:** dedicated readers for common recruiting platforms (Workday, SmartRecruiters, Greenhouse...), faster and more reliable than the headless browser
 
 ### Known limitations
 
 - Some swissdevjobs RSS links lead to the job list instead of the offer (offer removed or not available). A search link is shown for each offer as a fallback.
 - The RSS feed gives no location.
+- Some career sites block automated access in their robots.txt; their offers are not read.
