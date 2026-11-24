@@ -1,0 +1,202 @@
+{
+  "cases": [
+    {
+      "company": "Lombard Odier",
+      "company_list": "banks_security",
+      "url": "https://lombardodier.wd3.myworkdayjobs.com/Lombard_Odier_Careers",
+      "pagination": "numbered",
+      "expected_total": 69,
+      "total_source": "stated_by_page",
+      "total_text": "69 JOBS FOUND",
+      "checked_on": "2026-11-24",
+      "sample_titles": [
+        {"title": "Integration and DevOps Engineer (80-100%)", "page": 1},
+        {"title": "Information Risk Manager (80-100%)", "page": 1},
+        {"title": "Digital Signature & AI Solutions - 12-month internship", "page": 1},
+        {"title": "Internship – Data Engineer - Optimization of Data Delivery", "page": 3}
+      ],
+      "notes": "Workday, 20 offers per page, pages 1 to 4. Each offer shows a reference (e.g. R0007815)."
+    },
+    {
+      "company": "ICRC",
+      "company_list": "banks_security",
+      "url": "https://careers.icrc.org/go/All-Jobs/3807301/",
+      "pagination": "more_results",
+      "expected_total": 66,
+      "total_source": "stated_by_page",
+      "total_text": "Showing 1 to 25 of 66 Jobs",
+      "checked_on": "2026-11-24",
+      "sample_titles": [
+        {"title": "Clearance Assistant (800506)", "page": 1},
+        {"title": "Internal Controller", "page": 1},
+        {"title": "Field Communication Officer - Dnipro - 817298", "page": 1},
+        {"title": "Identity Specialist (Open-Source Technologies)", "page": 3}
+      ],
+      "notes": "25 offers per page, 'More Search Results' control."
+    },
+    {
+      "company": "UBS",
+      "company_list": "banks_security",
+      "url": "https://jobs.ubs.com/TGnewUI/Search/home/HomeWithPreLoad?partnerid=25008&siteid=5012&PageType=searchResults&SearchType=linkquery&LinkID=15231#keyWordSearch=&locationSearch=",
+      "pagination": "next_button",
+      "expected_total": 599,
+      "total_source": "stated_by_page",
+      "total_text": "599 results",
+      "checked_on": "2026-11-24",
+      "sample_titles": [
+        {"title": "Market Conduct Surveillance Analyst", "page": 1},
+        {"title": "IB Operations - Securities Specialist", "page": 1},
+        {"title": "FX Product Controller", "page": 1},
+        {"title": "Cash Manager Private Clients - Lausanne (80-100%)", "page": 3}
+      ],
+      "notes": "50 offers per page, 'Next >' button. Offers have no real URL (href=\"#0\"). Each offer has a 'Show more' control that expands its description: not pagination. 'Refine 50 results' is a filter count, not the total. A modal cookie dialog blocks every click; 'Decline all' redirects to the site home page and the dialog comes back on the list, so acceptance was used as fallback. 'Next >' appends 50 offers to the list."
+    },
+    {
+      "company": "BCN",
+      "company_list": "banks_security",
+      "url": "https://www.bcn.ch/la-bcn/carrieres/postes-ouverts",
+      "pagination": "single",
+      "expected_total": 3,
+      "total_source": "counted",
+      "total_text": null,
+      "checked_on": "2026-11-24",
+      "sample_titles": [
+        {"title": "Spécialiste système informatique bancaire", "page": 1},
+        {"title": "Agent·e d'exploitation", "page": 1},
+        {"title": "Apprentissage employé·e de commerce Option Banque", "page": 1}
+      ],
+      "notes": "No stated total; 3 offers counted on the page. 'Voir plus' links lead to other career pages, not to more offers."
+    },
+    {
+      "company": "SCRT",
+      "company_list": "banks_security",
+      "url": "https://careers.smartrecruiters.com/SCRT",
+      "pagination": "single",
+      "expected_total": 2,
+      "total_source": "counted",
+      "total_text": null,
+      "checked_on": "2026-11-24",
+      "sample_titles": [
+        {"title": "Security Engineer (ethical hacker) (m/w)", "page": 1},
+        {"title": "Network and Security Engineer (m/w)", "page": 1}
+      ],
+      "notes": "SmartRecruiters. 'Bern, Switzerland 2 jobs' is the count of a location group, not a page total; 2 offers counted. Only 2 sample titles exist."
+    },
+    {
+      "company": "Edmond de Rothschild",
+      "company_list": "banks_security",
+      "url": "https://evht.fa.ocs.oraclecloud.eu/hcmUI/CandidateExperience/en/sites/CX_7001/jobs",
+      "pagination": "single",
+      "expected_total": 23,
+      "total_source": "stated_by_page",
+      "total_text": "23 OPEN JOBS",
+      "checked_on": "2026-11-24",
+      "sample_titles": [
+        {"title": "TEST MANAGER (H/F)", "page": 1},
+        {"title": "INFORMATION SECURITY MANAGER – GROUPE (H/F)", "page": 1},
+        {"title": "CLIENT SERVICE SPECIALIST", "page": 1}
+      ],
+      "notes": "Oracle Candidate Experience. All 23 offers visible on load; larger lists on this platform load more on scroll."
+    },
+    {
+      "company": "Audemars Piguet",
+      "company_list": "watchmakers",
+      "url": "https://careers.audemarspiguet.com/en/job-listing",
+      "pagination": "load_more",
+      "expected_total": 75,
+      "total_source": "stated_by_page",
+      "total_text": "75 of 75 job openings",
+      "checked_on": "2026-11-24",
+      "sample_titles": [
+        {"title": "Stagiaire Data Analyst - Supply Chain & Logistics", "page": 1},
+        {"title": "Accounting Manager", "page": 1},
+        {"title": "Apprentissage - Micromécanicien (CFC)", "page": 1},
+        {"title": "Head of Movement Development", "page": 3}
+      ],
+      "notes": "10 offers shown, then 'View more'. The text says '75 of 75' although only 10 are visible. Location is written before the title."
+    },
+    {
+      "company": "Breitling",
+      "company_list": "watchmakers",
+      "url": "https://careers.breitling.com/search/?locale=en_GB",
+      "pagination": "numbered",
+      "expected_total": 69,
+      "total_source": "stated_by_page",
+      "total_text": "1 to 10 of 69 results",
+      "checked_on": "2026-11-24",
+      "sample_titles": [
+        {"title": "Movement Purchasing Manager (f/m/x)", "page": 1},
+        {"title": "Junior HR Business Partner (f/m/x) - Temporary (5-9 months)", "page": 1},
+        {"title": "HR Business Partner - South Korea (f/m/x)", "page": 1},
+        {"title": "Senior Accountant with French or German (f/m/x)", "page": 3}
+      ],
+      "notes": "10 offers per page, numbered pages 1 to 7 plus 'Next'."
+    },
+    {
+      "company": "Chopard",
+      "company_list": "watchmakers",
+      "url": "https://chopard.csod.com/ux/ats/careersite/1/home?c=chopard",
+      "pagination": "numbered",
+      "expected_total": null,
+      "total_source": null,
+      "total_text": null,
+      "checked_on": "2026-11-24",
+      "sample_titles": [
+        {"title": "Décorateur Angleur (H/F/D)", "page": 1},
+        {"title": "Senior Tax Manager (H/F)", "page": 1},
+        {"title": "Apprenti(e) Horloger(ère) CFC", "page": 1},
+        {"title": "Constructeur Mouvements (H/F/D)", "page": 2}
+      ],
+      "notes": "Cornerstone. 25 offers per page, pages '1 2'. No stated total; the filter 'Date Posted: Anytime (44)' suggests 44 but is a facet count. Two offers show only '(m/f/d)' as title in the rendered text."
+    },
+    {
+      "company": "Rolex",
+      "company_list": "watchmakers",
+      "url": "https://www.carrieres-rolex.com/Rolex/go/Toutes-nos-offres-Rolex/2901501/",
+      "pagination": "numbered",
+      "expected_total": null,
+      "total_source": null,
+      "total_text": null,
+      "checked_on": "2026-11-24",
+      "sample_titles": [
+        {"title": "Chargé de projets - Initiative Perpetual Planet", "page": 1},
+        {"title": "Data Analyst (H/F)", "page": 1},
+        {"title": "Gestionnaire d'atelier (H/F)", "page": 1},
+        {"title": "Horloger restaurateur (H/F)", "page": 3}
+      ],
+      "notes": "Table of 25 offers per page, pages 1 to 5 with '«' and '»'. No stated total. French interface."
+    },
+    {
+      "company": "Sellita",
+      "company_list": "watchmakers",
+      "url": "https://www.sellita.ch/index.php/en/jobs",
+      "pagination": "single",
+      "expected_total": 16,
+      "total_source": "counted",
+      "total_text": null,
+      "checked_on": "2026-11-24",
+      "sample_titles": [
+        {"title": "OPERATEUR DE MACHINE AUTOMATISÉE (H/F)", "page": 1},
+        {"title": "DESIGNER HORLOGER (H/F)", "page": 1},
+        {"title": "COMPTABLE - CONTRÔLEUR DE GESTION (H/F)", "page": 1}
+      ],
+      "notes": "Plain company page, no stated total; 16 offers counted. No location shown."
+    },
+    {
+      "company": "CSEM",
+      "company_list": "watchmakers",
+      "url": "https://www.csem.ch/en/jobs/",
+      "pagination": "single",
+      "expected_total": 22,
+      "total_source": "stated_by_page",
+      "total_text": "22 results",
+      "checked_on": "2026-11-24",
+      "sample_titles": [
+        {"title": "RF IC DESIGN ENGINEER (F/M/D) 100%", "page": 1},
+        {"title": "PHYSIKLABORANT/IN (W/M/D)", "page": 1},
+        {"title": "DIGITAL RADIO IC DESIGN ENGINEER (F/M/D) 100%", "page": 1}
+      ],
+      "notes": "All 22 visible. Research centre, not a watchmaker. 'BACK2BUSINESS PROGRAM' is counted in the 22 although it is a programme."
+    }
+  ]
+}
