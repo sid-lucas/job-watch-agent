@@ -1,50 +1,16 @@
 """Build the career sites registry (data/career_sites.json) for the target companies.
 
 Only companies missing from the registry are searched (one Serper credit each).
-Existing entries are never overwritten: they are reviewed and edited by hand.
+Existing entries are never overwritten.
 """
-import json
 from datetime import date
-from urllib.parse import urlsplit
 
 from dotenv import load_dotenv
 
 from job_watch import config, search, web
+from job_watch.registry import detect_platform, load_registry, save_registry
 
 QUERY_SUFFIX = "careers jobs Switzerland"
-
-PLATFORMS = {
-    "myworkdayjobs.com": "workday",
-    "oraclecloud.com": "oracle",
-    "oraclecloud.eu": "oracle",
-    "smartrecruiters.com": "smartrecruiters",
-    "greenhouse.io": "greenhouse",
-    "taleo.net": "taleo",
-    "umantis.com": "umantis",
-    "successfactors.com": "successfactors",
-    "successfactors.eu": "successfactors",
-}
-
-
-def detect_platform(url: str) -> str | None:
-    domain = urlsplit(url).netloc.lower()
-    for suffix, platform in PLATFORMS.items():
-        if domain == suffix or domain.endswith("." + suffix):
-            return platform
-    return None
-
-
-def load_registry() -> dict:
-    if config.REGISTRY_PATH.exists():
-        return json.loads(config.REGISTRY_PATH.read_text(encoding="utf-8"))
-    return {}
-
-
-def save_registry(registry: dict) -> None:
-    # Write to a temporary file first so an interruption never corrupts the registry
-    tmp = config.REGISTRY_PATH.with_suffix(".tmp")
-    tmp.write_text(json.dumps(registry, indent=2, ensure_ascii=False), encoding="utf-8")
-    tmp.replace(config.REGISTRY_PATH)
 
 
 def known_names(registry: dict) -> set[str]:
@@ -81,8 +47,8 @@ def new_entry(company: str) -> dict:
             blocked += 1
     return {
         "aliases": config.COMPANY_ALIASES.get(company, []),
-        "status": "to_check",      # to_check -> ok / none after manual review
-        "jobs_url": None,          # job list URL, chosen by hand among the candidates
+        "status": "to_check",      # to_check -> ok / blocked / none
+        "jobs_url": None,          # job list URL
         "platform": None,
         "candidates": candidates,
         "blocked_results": blocked,
@@ -108,7 +74,7 @@ def main():
         save_registry(registry)     # saved after each company: credits already spent are never lost
         print(f"{company}: {len(entry['candidates'])} allowed, {entry['blocked_results']} blocked")
 
-    print(f"Done. Review {config.REGISTRY_PATH} and set jobs_url, platform and status for each entry.")
+    print(f"Done: {config.REGISTRY_PATH}")
 
 
 if __name__ == "__main__":
