@@ -7,7 +7,7 @@ except ModuleNotFoundError:
 
 from user_config import (
     MIN_SCORE, MAX_DISPLAY, MIN_VERIFY_SCORE, MAX_VERIFY_PER_RUN,
-    KEYWORDS, TOP_COMPANIES, GOOD_COMPANIES, COMPANY_ALIASES, COMPANY_DOMAINS,
+    KEYWORDS, TOP_COMPANIES, GOOD_COMPANIES, COMPANY_ALIASES, COMPANY_DOMAINS, COMPANY_CONTEXT,
     REJECT_RULES, SCORE_RULES,
 )
 
@@ -35,12 +35,3 @@ ROBOTS_TIMEOUT = 10     # seconds
 
 # Domains never fetched, whatever their robots.txt says (terms of use forbid automated access)
 BLOCKED_DOMAINS = ["jobs.ch", "jobup.ch", "jobscout24.ch", "linkedin.com", "indeed.com"]
-
-# Personal settings
-try:
-    from user_config import (
-        MIN_SCORE, MAX_DISPLAY, MIN_VERIFY_SCORE, MAX_VERIFY_PER_RUN,
-        KEYWORDS, TOP_COMPANIES, GOOD_COMPANIES, REJECT_RULES, SCORE_RULES,
-    )
-except ImportError:
-    raise SystemExit("Missing user_config.py: copy user_config.example.py to user_config.py and edit it.")
