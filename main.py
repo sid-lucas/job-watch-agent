@@ -1,7 +1,13 @@
 from collections import Counter
+from urllib.parse import quote_plus
 
 import config
 from graph import build_graph
+
+
+def search_link(offer: dict) -> str:
+    """Build a web search link to find the offer on the company's own site."""
+    return "https://www.google.com/search?q=" + quote_plus(f"{offer['company']} {offer['title']}")
 
 
 def main():
@@ -25,7 +31,8 @@ def main():
     for o in good[:config.MAX_DISPLAY]:
         print(f"\n{o['score']:4d}  {o['title']} @ {o['company']}")
         print(f"      {', '.join(o['reasons'])}")
-        print(f"      {o['link']}")
+        print(f"            Offer:  {o['link']}")
+        print(f"            Search: {search_link(o)}")
 
     if len(good) > config.MAX_DISPLAY:
         print(f"\n... and {len(good) - config.MAX_DISPLAY} more above score {config.MIN_SCORE}")
