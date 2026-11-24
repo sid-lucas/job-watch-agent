@@ -34,8 +34,19 @@ It collects job offers from authorized sources, filters and scores them against 
 
 ## Roadmap
 
-- **V1:** RSS collection, keyword filter, deduplication, red/green flags, SQLite storage
-- **V2:** local LLM matching with personal documents, score with reasons
+```
+Sources → filter → merge duplicates → flags → verify (top offers) → AI matching → save → notify → human review
+```
+
+- **V1:** swissdevjobs RSS, keyword filter, deduplication, red/green flags, SQLite storage
+- **V1.1:** job alert e-mails (LinkedIn, jobup.ch, jobs.ch, emploi-it.ch, Indeed)
+- **V1.2:** check that the best offers still exist on the company's career site, and get the full description and official link
+- **V2:** local AI matching against personal documents, with a score and reasons
 - **V3:** notification of the best offers
-- **V4:** CV and cover letter drafts with human validation
+- **V4:** CV and cover letter drafts, with human validation
 - **V5:** security hardening (Docker, prompt injection tests)
+
+### Known limitations
+
+- Some swissdevjobs RSS links lead to the job list instead of the offer (offer removed or not available). A search link is shown for each offer as a fallback.
+- The RSS feed gives no location.
