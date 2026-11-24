@@ -8,6 +8,8 @@ from bs4 import BeautifulSoup
 import config
 from state import JobState, Offer
 
+import storage
+
 
 def parse_title(raw_title: str) -> tuple[str, str]:
     """Split 'Position @ Company [Salary]' into (position, company)."""
@@ -114,3 +116,10 @@ def deduplicate(state: JobState) -> dict:
 
     print(f"deduplicate: {len(unique)} / {len(state['offers'])} offers unique")
     return {"offers": unique}
+
+
+def save_results(state: JobState) -> dict:
+    """Node: store offers in the local database (already known offers are skipped)."""
+    new = storage.save_offers(state["offers"])
+    print(f"save_results: {new} new offers stored, {len(state['offers']) - new} already known")
+    return {}

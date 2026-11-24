@@ -1,6 +1,6 @@
 from langgraph.graph import StateGraph, START, END
 
-from nodes import fetch_rss, filter_keywords, deduplicate, apply_flags
+from nodes import fetch_rss, filter_keywords, deduplicate, apply_flags, save_results
 from state import JobState
 
 
@@ -13,12 +13,14 @@ def build_graph():
     builder.add_node("filter_keywords", filter_keywords)
     builder.add_node("deduplicate", deduplicate)
     builder.add_node("apply_flags", apply_flags)
+    builder.add_node("save_results", save_results)
 
     # Edges
     builder.add_edge(START, "fetch_rss")
     builder.add_edge("fetch_rss", "filter_keywords")
     builder.add_edge("filter_keywords", "deduplicate")
     builder.add_edge("deduplicate", "apply_flags")
-    builder.add_edge("apply_flags", END)
+    builder.add_edge("apply_flags", "save_results")
+    builder.add_edge("save_results", END)
 
     return builder.compile()
