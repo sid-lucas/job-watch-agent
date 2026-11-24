@@ -51,6 +51,7 @@ def fetch_rss(state: JobState) -> dict:
     print(f"fetch_rss: {len(offers)} offers")
     return {"offers": offers}
 
+
 def filter_keywords(state: JobState) -> dict:
     """Node: keep only offers that contain at least one keyword (whole words)."""
     patterns = [re.compile(rf"\b{re.escape(k)}\b", re.IGNORECASE) for k in config.KEYWORDS]
@@ -63,6 +64,7 @@ def filter_keywords(state: JobState) -> dict:
 
     print(f"filter_keywords: {len(kept)} / {len(state['offers'])} offers kept")
     return {"offers": kept}
+
 
 def rule_matches(rule: dict, offer: Offer) -> bool:
     """Return True when a rule matches its field of the offer."""
@@ -94,3 +96,21 @@ def apply_flags(state: JobState) -> dict:
     kept = sum(1 for o in offers if o["status"] == "new")
     print(f"apply_flags: {kept} kept, {len(offers) - kept} rejected")
     return {"offers": offers}
+
+
+def deduplicate(state: JobState) -> dict:
+    """Node: remove offers with the same link, or the same company and title."""
+    seen_links: set[str] = set()
+    seen_keys: set[tuple[str, str]] = set()
+
+    unique = []
+    for offer in state["offers"]:
+        key = (offer["company"].lower(), offer["title"].lower())
+        if offer["link"] in seen_links or key in seen_keys:
+            continue
+        seen_links.add(offer["link"])
+        seen_keys.add(key)
+        unique.append(offer)
+
+    print(f"deduplicate: {len(unique)} / {len(state['offers'])} offers unique")
+    return {"offers": unique}
