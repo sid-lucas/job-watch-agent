@@ -22,25 +22,29 @@ How things work and why they were built this way. Unordered notes, updated along
 
 ## Career sites registry (V1.1)
 
+Goal: for each target company, find the URL of the page that lists its job offers (not just its career site), only where automated access is allowed. This URL is what V1.2 reads.
+
 Why: the RSS feed is incomplete (no location, links that lead to the job list). Company career sites are the most reliable source, but their job list URL must be known first.
 
-`data/career_sites.json` (not committed), built in two steps:
-1. `build_registry`: one web search per company missing from the registry. Only links allowed by robots.txt are kept as candidates. Never overwrites existing entries.
-2. `resolve_registry`: chooses the job list URL among the candidates.
+How, in order:
+1. `build_registry`, web search (Serper): finds where to go. One search per company missing from the registry gives its career pages. Only links allowed by robots.txt are kept as candidates. Existing entries are never overwritten.
+2. `resolve_registry`, rules on the search candidates: a link on a known recruiting platform, or on a `jobs.` / `careers.` subdomain of the company, is taken as the job list.
+3. `resolve_registry`, headless browser (Playwright): looks at what is on the page. When no search candidate matches, the company's own career pages are opened and the same rules are applied to their links (buttons, iframes, JavaScript content), e.g. the Pictet career page links to its SuccessFactors job list. Results are cached in `discovered`.
 
-Two sources of links:
-- Web search (Serper): the career pages known to the search engine.
-- Headless browser (Playwright): links inside the company's own career pages (buttons, iframes, JavaScript content), which the search often misses. Only used when the search candidates match no rule; only pages on the company's own domain are opened; results are cached in `discovered`.
+Serper and Playwright complement each other: Serper searches the whole web but only knows indexed pages; Playwright only opens a known URL but sees its full content.
 
-Two rules decide if a link is the job list:
+Rules:
 - Platform rule: hosted on a known recruiting platform (Workday, Oracle, SuccessFactors...). Most reliable.
 - Job subdomain rule: `jobs.` / `careers.` subdomain whose domain matches the company name or an alias. Short names must match a whole domain label, to avoid noise.
+
+Status of an entry: `to_check` (not resolved yet), `ok` (job list found and allowed), `blocked` (found but forbidden by robots.txt, planned), `none` (nothing reliable found, planned).
 
 Other choices:
 - Shortest path among matching links: usually the job list root, not a single offer.
 - Greenhouse: a single offer URL is reduced to the company board (`/<company>`), because expired offers redirect to an error page.
 - `resolved_by` records the rule used. Rule-based entries are recomputed on each run; entries edited by hand are never changed.
 - Aliases (`COMPANY_ALIASES`) avoid paying two searches for the same company.
+- The browser only opens pages on the company's own domain (2 at most), once per company.
 
 ## Web access and security
 
