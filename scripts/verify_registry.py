@@ -43,7 +43,11 @@ def verify(company: str, start_url: str) -> tuple[str, str | None, list[dict]]:
     url, trail, visited = start_url, [], set()
     for hop in range(MAX_HOPS + 1):
         visited.add(url)
-        if not web.can_fetch(url):
+        access = web.robots_status(url)
+        if access == web.ERROR:
+            trail.append({"url": url, "page_type": "not fetched", "reason": "robots.txt unreadable"})
+            return "retry", start_url, trail
+        if access == web.DISALLOWED:
             trail.append({"url": url, "page_type": "not fetched", "reason": "forbidden by robots.txt"})
             return "blocked", url, trail
         page = render_page(url)

@@ -95,21 +95,25 @@ def main():
 
         candidate, rule = result
         url = job_list_root(candidate["url"], candidate["platform"])
-        if not web.can_fetch(url):
+        if web.robots_status(url) != web.ALLOWED:
             url = candidate["url"]
+        access = web.robots_status(url)
+        if access == web.ERROR:
+            print(f"RETRY     {company:26} robots.txt unreadable, retried on next run")
+            continue    # temporary: nothing saved for this entry
         entry["jobs_url"] = url
         entry["platform"] = candidate["platform"]
-        entry["status"] = "ok" if web.can_fetch(url) else "blocked"
+        entry["status"] = "ok" if access == web.ALLOWED else "blocked"
         entry["resolved_by"] = prefix + rule
 
     save_registry(registry)
 
-    for status in ("ok", "blocked"):
+    for status in ("ok", "blocked", "not_found"):
         companies = [c for c, e in registry.items() if e["status"] == status]
         print(f"\n{status.upper()} ({len(companies)})")
         for company in companies:
             entry = registry[company]
-            print(f"  {company:26} {entry.get('resolved_by', 'manual'):30} {entry['jobs_url']}")
+            print(f"  {company:26} {entry.get('resolved_by', 'manual'):30} {entry['jobs_url'] or '(no job list)'}")
     pending = [c for c, e in registry.items() if e["status"] == "to_check"]
     print(f"\nTO_CHECK ({len(pending)}):", ", ".join(pending))
 
