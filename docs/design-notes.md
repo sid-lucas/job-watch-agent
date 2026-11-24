@@ -5,8 +5,8 @@ How things work and why they were built this way. Unordered notes, updated along
 ## Configuration
 
 - `job_watch/config.py`: technical settings (paths, models, web access), committed.
-- `user_config.py`: personal settings (keywords, companies, aliases, scoring rules), not committed. Each user has their own; `user_config.example.py` is the template.
-- `config.py` re-exports the personal settings, so the rest of the code only imports `config`.
+- `user_config.py`: personal settings (keywords, companies, aliases, company domains, scoring rules), not committed. Each user has their own; `user_config.example.py` is the template.
+- `config.py` re-exports the personal settings, so the rest of the code only imports `config`. A missing `user_config.py` stops the program with a clear message; a missing variable raises an import error naming it.
 
 ## Project layout
 
@@ -26,37 +26,77 @@ Goal: for each target company, find the URL of the page that lists its job offer
 
 Why: the RSS feed is incomplete (no location, links that lead to the job list). Company career sites are the most reliable source, but their job list URL must be known first.
 
+`data/career_sites.json` (not committed) is the registry itself: one entry per company, with its candidates, the chosen URL, its status and the trail of every decision.
+
 How, in order:
-1. `build_registry`, web search (Serper): finds where to go. One search per company missing from the registry gives its career pages. Only links allowed by robots.txt are kept as candidates. Existing entries are never overwritten.
-2. `resolve_registry`, rules on the search candidates: a link on a known recruiting platform, or on a `jobs.` / `careers.` subdomain of the company, is taken as the job list.
-3. `resolve_registry`, headless browser (Playwright): looks at what is on the page. When no search candidate matches, the company's own career pages are opened and the same rules are applied to their links (buttons, iframes, JavaScript content), e.g. the Pictet career page links to its SuccessFactors job list. Results are cached in `discovered`.
+1. `build_registry`, web search (Serper): finds where to go. One search per company missing from the registry. Only links allowed by robots.txt are kept as candidates. Existing entries are never overwritten.
+2. `resolve_registry`, rules: proposes a job list URL. Rules are applied to the search candidates; when none matches, the company's own career pages are opened in a headless browser (Playwright) and the same rules are applied to their links (buttons, iframes, JavaScript content). Browser results are cached in `discovered`.
+3. `verify_registry`, LLM page judge: confirms or rejects. The judge reads the rendered page and says whether it actually lists job offers. If the rule URL is missing or rejected, the best candidates on the company's own domain are judged too.
 
-Serper and Playwright complement each other: Serper searches the whole web but only knows indexed pages; Playwright only opens a known URL but sees its full content.
+Serper and Playwright complement each other: Serper searches the whole web but only knows indexed pages; Playwright only opens a known URL but sees its full content. The rules are cheap and fast; the judge understands the content.
 
-Rules:
-- Platform rule: hosted on a known recruiting platform (Workday, Oracle, SuccessFactors...). Most reliable.
-- Job subdomain rule: `jobs.` / `careers.` subdomain whose domain matches the company name or an alias. Short names must match a whole domain label, to avoid noise.
+Rules (step 2):
+- Platform rule: hosted on a known recruiting platform (Workday, Oracle, SuccessFactors, SmartRecruiters, Greenhouse, Taleo, Umantis, Personio).
+- Job subdomain rule: `jobs.` / `careers.` subdomain whose domain matches the company.
 
-Status of an entry: `to_check` (not resolved yet), `ok` (job list found and allowed), `blocked` (found but forbidden by robots.txt, planned), `none` (nothing reliable found, planned).
+Page judge (step 3):
+- Classifies the page: `job_list`, `single_offer`, `search_form`, `overview`, `form`, `error`, `other`.
+- When the page is not a job list, proposes the link most likely to lead to it; this link is followed (2 hops at most), each page checked against robots.txt first.
+- Candidates are ranked by job-related words in their title and URL ("job", "offres", "postes"... count more than "career"); the 3 best are judged, the first job list wins.
+- A URL already rejected is never judged again.
+
+Status of an entry:
+- `to_check`: not processed yet.
+- `ok`: job list found, allowed, confirmed by the judge.
+- `blocked`: job list found but forbidden by robots.txt or a blocked domain. Offers will come from e-mail alerts (V1.4).
+- `not_found`: no job list among the URLs tried; `jobs_url` is cleared, the rejected URLs stay in the trail. Left to a later agent.
+
+Temporary failures (page that does not load, robots.txt unreadable, LLM API unavailable) never produce a final status: the LLM call is retried 3 times with a 10 s wait, the entry is retried in a second pass at the end of the run, and only then saved as `not_found`, with the cause in the trail.
+
+Matching a domain with a company:
+- Accents and hyphens are removed on both sides ("Edmond de Rothschild" matches `edmond-de-rothschild.com`).
+- Short names (under 5 characters) must start a domain label ("Syz" matches `syzgroup.com`); longer names may appear anywhere in it.
+- `COMPANY_DOMAINS` in `user_config.py` declares domains that do not carry the name (`ge.ch` for État de Genève).
 
 Other choices:
 - Shortest path among matching links: usually the job list root, not a single offer.
 - Greenhouse: a single offer URL is reduced to the company board (`/<company>`), because expired offers redirect to an error page.
-- `resolved_by` records the rule used. Rule-based entries are recomputed on each run; entries edited by hand are never changed.
+- `resolved_by` records how the URL was found (`platform rule`, `browser + job subdomain rule`, `candidate judge`...). Entries edited by hand (no `resolved_by`) are never changed; entries verified by the judge are not recomputed by the rules.
 - Aliases (`COMPANY_ALIASES`) avoid paying two searches for the same company.
 - The browser only opens pages on the company's own domain (2 at most), once per company.
+- `scripts/check_page_judge.py` is the judge's test set: pages verified by hand, run again after any change to the judge or the browser.
+- `scripts/show_registry.py` gives a read-only overview: status, URL, and whether it was confirmed by the judge.
+
+Known limitations:
+- Links followed by the judge are not checked against the company's domain, only the starting candidates are.
+- A short name can match the start of an unrelated domain (`bcf` and `bcfcareer.nl`).
+- The judge is not fully deterministic: the same page can get a different proposed link from one run to another.
+- An empty job list ("no open positions") is classified as `overview` instead of being kept as a valid job list.
+- Pages that need an action to show offers (a search button, as on Microsoft) are not handled.
+- Some job lists cover more than the company (`jobs.admin.ch` for the Cyber-Defence Campus): V1.2 must filter offers by entity.
+- All SuccessFactors career sites seen so far forbid robots (`Disallow: /`).
+
+## LLM usage
+
+- One shared cloud client (`job_watch/llm.py`, Gemini), created on first use so that importing a module never requires the API key.
+- Allowed because it only sees public data (web pages, search results, public offers). Personal documents never go to a cloud model.
+- Web content is untrusted (prompt injection): placed between tags, the model is told never to follow instructions found there.
+- "The prompt guides, the code constrains": links proposed by the model must come from the page or the search results, otherwise they are dropped.
+- Structured output with Pydantic schemas: answers are typed and checked in code.
+- Two judges: `page_judge` (is this page a job list?, V1.1) and `offer_judge` (does this offer still exist?, V1.3).
 
 ## Web access and security
 
-- robots.txt checked before every fetch, with a timeout. A missing robots.txt (404) means allowed; any other error means not allowed.
+- `robots_status` returns `allowed`, `disallowed` (blocked domain or robots.txt rule) or `error` (robots.txt unreadable). `can_fetch` only accepts `allowed`. An error is never turned into a final `blocked`.
+- robots.txt is downloaded once per site and per run (cache); failures are not cached, so they are retried.
+- A missing robots.txt (404) means allowed.
 - `BLOCKED_DOMAINS` overrides robots.txt for sites whose terms forbid automated access (jobs.ch, jobup.ch, LinkedIn, Indeed...). Their offers come from official e-mail alerts only.
 - Honest user agent, low volume, no evasion of protections.
-- Playwright preferred over Selenium: modern, waits automatically for page elements.
+- Playwright preferred over Selenium: modern, waits automatically for page elements. Pages are rendered after `DOMContentLoaded` plus a short wait: the `load` event waits for every resource and timed out on heavy pages that were already usable (Oracle EU cloud).
 
 ## Verification agent (planned V1.3)
 
-- Cloud LLM (Gemini) allowed because it only sees public data (offers, search results, web pages).
-- Web content is untrusted: placed between tags, the model must answer "unknown" when unsure.
-- "The prompt guides, the code constrains": the official link must come from the search results, `same_offer` / `still_open` are only trusted on a real job posting page.
+- Web content is untrusted, the model must answer "unknown" when unsure.
+- The official link must come from the search results, `same_offer` / `still_open` are only trusted on a real job posting page.
 - Serper budget: only offers above `MIN_VERIFY_SCORE`, at most `MAX_VERIFY_PER_RUN` per run, each offer verified once.
 - Separation: the verification agent reads the web but has no personal documents; the matching agent (V2) has the personal documents but no web access and no tools.

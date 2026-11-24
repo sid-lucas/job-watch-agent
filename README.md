@@ -14,7 +14,7 @@ pip install -r requirements.txt
 playwright install chromium
 ```
 
-Personal settings (keywords, target companies, scoring rules):
+Personal settings (keywords, target companies, aliases, company domains, scoring rules):
 
 ```bash
 cp user_config.example.py user_config.py
@@ -32,8 +32,8 @@ GEMINI_API_KEY=...
 ## Project structure
 
 ```
-job_watch/              application code (graph, nodes, storage, registry, web access, browser, LLM judge)
-scripts/                exploration and maintenance scripts
+job_watch/              application code (graph, nodes, storage, registry, web access, browser, LLM judges)
+scripts/                registry building and maintenance scripts, tests of the LLM judge
 docs/                   design notes
 data/                   local database and registry (not committed)
 main.py                 entry point
@@ -47,10 +47,19 @@ How things work and why: see [docs/design-notes.md](docs/design-notes.md).
 ## Usage
 
 ```bash
-python main.py                       # fetch, filter, score and store offers, list the best new ones
-python -m scripts.build_registry     # search the career sites of new target companies (Serper credits)
-python -m scripts.resolve_registry   # choose the job list URL of each company
+python main.py                         # fetch, filter, score and store offers, list the best new ones
 ```
+
+Career sites registry, in order:
+
+```bash
+python -m scripts.build_registry       # search the career sites of new target companies (Serper credits)
+python -m scripts.resolve_registry     # propose a job list URL for each company (rules + headless browser)
+python -m scripts.verify_registry      # confirm the job lists with the LLM page judge (Gemini calls)
+python -m scripts.show_registry        # overview of the registry (read only)
+```
+
+`python -m scripts.check_page_judge` runs the judge on pages verified by hand.
 
 Rules (keywords, companies, aliases, reject and score rules) are set in `user_config.py`.
 
@@ -90,8 +99,8 @@ Rules (keywords, companies, aliases, reject and score rules) are set in `user_co
 Sources (career sites, RSS, e-mails) → filter → merge duplicates → flags → verify → AI matching → save → notify → human review
 ```
 
-- **V1:** swissdevjobs RSS, keyword filter, deduplication, red/green flags, SQLite storage
-- **V1.1:** registry of the target companies' career sites (job list URL, recruiting platform, robots.txt check)
+- **V1 (done):** swissdevjobs RSS, keyword filter, deduplication, red/green flags, SQLite storage
+- **V1.1 (done):** registry of the target companies' job lists (web search, rules, headless browser, LLM page judge, robots.txt check)
 - **V1.2:** read the job lists of the registered career sites (headless browser + LLM extraction), as the main source of offers
 - **V1.3:** verify offers from other sources against the career sites (registry lookup, or on-demand search for unknown companies)
 - **V1.4:** job alert e-mails (LinkedIn, jobup.ch, jobs.ch, emploi-it.ch, Indeed)
@@ -99,10 +108,11 @@ Sources (career sites, RSS, e-mails) → filter → merge duplicates → flags �
 - **V3:** notification of the best offers
 - **V4:** CV and cover letter drafts, with human validation
 - **V5:** security hardening (Docker, prompt injection tests)
-- **Later:** dedicated readers for common recruiting platforms (Workday, SmartRecruiters, Greenhouse...), faster and more reliable than the headless browser
+- **Later:** an agent (search, open page, follow link) for companies whose job list was not found; dedicated readers for common recruiting platforms (Workday, SmartRecruiters, Greenhouse...), faster and more reliable than the headless browser
 
 ### Known limitations
 
 - Some swissdevjobs RSS links lead to the job list instead of the offer (offer removed or not available). A search link is shown for each offer as a fallback.
 - The RSS feed gives no location.
-- Some career sites block automated access in their robots.txt; their offers are not read.
+- Some career sites block automated access in their robots.txt (e.g. all SuccessFactors sites seen so far); their offers are not read.
+- The job list of some companies is not found automatically (empty lists, pages that need a search action, unusual domains). See the design notes for details.
