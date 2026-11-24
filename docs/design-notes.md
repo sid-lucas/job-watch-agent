@@ -93,6 +93,8 @@ Found with a second company list (watchmakers, 41 companies: 14 ok, 1 blocked, 2
 - "The prompt guides, the code constrains": links proposed by the model must come from the page or the search results, otherwise they are dropped.
 - Structured output with Pydantic schemas: answers are typed and checked in code.
 - Two judges: `page_judge` (is this page a job list?, V1.1) and `offer_judge` (does this offer still exist?, V1.3).
+- LLM chain (`LLM_CHAIN` in `config.py`): Gemini models first, local `qwen3:8b` (Ollama) as last resort when the cloud is overloaded. `LLM_ONLY=ollama` runs a script with the local model only.
+- Local model measured with the judge eval: 9/10, but it can wrongly answer `owner=no` (stops link following) and infer missing locations. Good enough for extraction, weaker as a judge.
 
 ## Web access and security
 
