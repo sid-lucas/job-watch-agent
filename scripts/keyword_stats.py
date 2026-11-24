@@ -4,8 +4,8 @@ from pathlib import Path
 
 sys.path.append(str(Path(__file__).parent.parent))  # allow imports from the project root
 
-import config
-from nodes import fetch_rss
+from job_watch import config
+from job_watch.nodes import fetch_rss
 
 offers = fetch_rss({"offers": []})["offers"]
 

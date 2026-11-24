@@ -6,10 +6,10 @@ from urllib.parse import urlsplit, urlunsplit
 import feedparser
 from bs4 import BeautifulSoup
 
-import config
-from state import JobState, Offer
+from job_watch import config
+from job_watch.state import JobState, Offer
 
-import storage
+from job_watch import storage
 
 
 def to_iso(rss_date: str) -> str:

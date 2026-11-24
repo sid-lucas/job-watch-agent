@@ -1,6 +1,6 @@
 import feedparser
 
-import config
+from job_watch import config
 
 feed = feedparser.parse(config.FEED_URL)
 print(f"Number of offers: {len(feed.entries)}")

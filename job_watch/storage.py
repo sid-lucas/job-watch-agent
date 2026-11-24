@@ -1,7 +1,7 @@
 import json
 import sqlite3
 
-import config
+from job_watch import config
 
 SCHEMA = """
 CREATE TABLE IF NOT EXISTS offers (

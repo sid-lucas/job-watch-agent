@@ -1,7 +1,7 @@
 from langgraph.graph import StateGraph, START, END
 
-from nodes import fetch_rss, filter_keywords, deduplicate, apply_flags, save_results
-from state import JobState
+from job_watch.nodes import fetch_rss, filter_keywords, deduplicate, apply_flags, save_results
+from job_watch.state import JobState
 
 
 def build_graph():

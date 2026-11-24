@@ -2,7 +2,7 @@
 from pathlib import Path
 
 # Paths
-BASE_DIR = Path(__file__).parent
+BASE_DIR = Path(__file__).parent.parent
 DB_PATH = BASE_DIR / "data" / "offers.db"
 
 # RSS source

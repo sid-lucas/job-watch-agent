@@ -1,5 +1,5 @@
 """Personal settings template. Copy this file to user_config.py and edit it."""
-from checks import is_german_ad, names_pattern
+from job_watch.checks import is_german_ad, names_pattern
 
 # Display
 MIN_SCORE = 20

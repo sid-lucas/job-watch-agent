@@ -4,9 +4,9 @@ from urllib.parse import urlsplit
 
 sys.path.append(str(Path(__file__).parent.parent))  # allow imports from the project root
 
-import config
-from search import search_offer
-from web import can_fetch
+from job_watch import config
+from job_watch.search import search_offer
+from job_watch.web import can_fetch
 
 allowed_count = 0
 blocked_count = 0

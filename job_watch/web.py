@@ -4,7 +4,7 @@ from urllib.robotparser import RobotFileParser
 import requests
 from bs4 import BeautifulSoup
 
-import config
+from job_watch import config
 
 
 def can_fetch(url: str) -> bool:

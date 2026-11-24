@@ -3,7 +3,7 @@ from pathlib import Path
 
 sys.path.append(str(Path(__file__).parent.parent))  # allow imports from the project root
 
-from web import can_fetch
+from job_watch.web import can_fetch
 
 URLS = [
     # Reference: blocked

@@ -1,8 +1,8 @@
 from collections import Counter
 from urllib.parse import quote_plus
 
-import config
-from graph import build_graph
+from job_watch import config
+from job_watch.graph import build_graph
 
 
 def search_link(offer: dict) -> str:
