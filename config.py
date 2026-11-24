@@ -1,4 +1,8 @@
 from checks import is_german_ad, names_pattern
+from pathlib import Path
+
+# Local database
+DB_PATH = Path(__file__).parent / "data" / "offers.db"
 
 # RSS source
 FEED_URL = "https://swissdevjobs.ch/rss"
