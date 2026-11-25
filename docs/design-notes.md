@@ -14,6 +14,7 @@ How things work and why they were built this way. Unordered notes, updated along
 - `main.py` and `scripts/`: entry points.
 - Rule: the logic lives in `job_watch/`; scripts only call it (load the registry, loop, ask for confirmation, print) and never import another script. `evals/` holds evaluations that call a real LLM and cost API calls, unlike future unit tests.
 - Everything runs from the project root (`python main.py`, `python -m scripts.<name>`, `python -m evals.<name>`), so imports work without `sys.path` changes.
+- `tests/`: unit and end-to-end tests run with pytest, without LLM or network (`python -m pytest`). `tests/trap_site/` is a local trap website used to prove the browser guardrails.
 
 ## Filtering and scoring (V1)
 
@@ -84,6 +85,34 @@ Found with a second company list (watchmakers, 41 companies: 14 ok, 1 blocked, 2
 - Short domains: the domain often carries a short form of the name (`patek.com`, `iwc.com`), which `domain_matches` does not accept.
 - Tracking parameters (`?srsltid=...`) are kept in the saved URLs.
 - Results depend on the sector: rules and test set were tuned on banks and security companies.
+
+## Offer list agent (V1.2, in progress)
+
+Goal: read every offer of a job list, whatever its pagination (numbered pages, "Next", "load more"), on any site.
+
+Why an agent: the registry rules (URL patterns, name matching, CSS selectors) were tuned on banks and failed on a second list (watchmakers). Recognising "the control that leads to the next page" is a question of meaning, so it is left to an LLM. The code provides the harness: tools, guardrails, budgets, validation and evaluation.
+
+Principle: the agent decides, the code constrains. The LLM never handles URLs or selectors: it only picks the number of an element listed by the code, and the code refuses any action that is not allowed, whatever the LLM asked for (including under prompt injection).
+
+Built so far (`job_watch/web/`):
+- `session.py`, `BrowserSession`: one headless browser page kept open, in a disposable context (no account, downloads refused, popups closed). Every navigation is intercepted: GET only, same host as the start URL (`www.` ignored), robots.txt and blocked domains checked. Every event goes to a trail.
+- `observe()`: the visible text and the clickable elements of the page, numbered by the code, with the facts the guardrails need (visible text, accessible name, link target, form, cookie banner, iframe). It also gives the text that is new since the previous observation (`new_content.py`), so that a click that brings nothing can stop the agent, and only new content is sent to the LLM.
+- `click(element_id, purpose)`: purpose is `pagination`, `cookie_refusal` or `cookie_acceptance`. Before clicking, the code checks: the number comes from the last observation, the click budget, the rules of `click_rules.py`, and that the element has not changed since it was observed (protection against a page swapping a button between check and use). Never a forced click.
+- `click_rules.py`: pure rules, testable without a browser. Only links and buttons; never in a form with fields; forbidden actions refused in EN/FR/DE/IT (apply, sign in, register, save, subscribe, submit...); no link to another host, no download, no new tab; no sort, filter or search (they change the scope of the list).
+- Cookie banners: refusal first. Acceptance is allowed only as a fallback, decided by the code (never by the agent or the page), when the refusal breaks access to the list (redirect, banner coming back), only inside a cookie banner, and always logged. Preferences are never opened. The browser context is disposable, so accepted cookies only follow an anonymous robot.
+
+Tests:
+- `tests/test_click_rules.py`: the rules on real controls collected on BCN, UBS, Lombard Odier, Rolex and ICRC, plus synthetic traps (a "Next" button whose accessible name is "Apply now", a login form whose button is "Next").
+- `tests/trap_site/` + `tests/test_session_trap.py`: a local website full of traps (prompt injection in the text, Apply and Sign in buttons, "Next" links to another host or to a robots.txt-forbidden path, POST form, popup, covered button, cookie banner that breaks the list, banner in an iframe). After each test, the server log must show only GET requests, no trap page and no other host: "forbidden actions executed = 0". Disabling a guardrail makes tests fail.
+
+Evaluation (`evals/check_list_agent.py`, cases in `evals/cases/list_agent.json`): 12 job lists checked by hand (6 banks and security, 6 watchmakers), with the total announced by the page and sample titles, some beyond page 1. Baseline with the previous extractor (page 1 only): 100 % on single-page lists, 8 to 38 % on paginated lists. The agent will be measured on the same cases.
+
+Next: the LangGraph agent (state, LLM with tools, loop, budgets), then offer extraction on each page, then the comparison with the baseline.
+
+Known limitations:
+- A cookie banner that is part of the normal page flow (not a floating dialog) is not recognised, so its buttons are refused (Lombard Odier); the list stays readable.
+- Pages with many controls: the element list is cut at 300 (UBS after a few "load more"), and the new text of one click can exceed the text limit.
+- The forbidden-action words cover four languages; other languages rely on the other guardrails (forms, navigation interception).
 
 ## LLM usage
 
