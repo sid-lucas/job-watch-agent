@@ -1,15 +1,19 @@
-"""Filter on listed offers, in code: IT title and location in Switzerland.
+"""Filter on listed offers, in code: IT title, and location not clearly abroad.
 
 Only the listing is known at this point (title and location, no description), so the
 keywords of user_config are searched in the title alone, with the V1 rule (whole words,
-case-insensitive). An unknown location is kept: the detail page will tell.
+case-insensitive).
 
-The place names are general Swiss geography (country, cantons, towns), never per-site rules.
-A Swiss town missing from the list makes an offer not kept: the list errs toward size, and
-listed_offers keeps every offer, kept or not.
+Funnel principle: a lost offer costs more than an extra one. An offer is set aside only when
+its location is clearly abroad (another country, or a large foreign city) and names no Swiss
+place. Everything else is kept: Swiss place, unknown town (a small Swiss town missing from
+the list), "Remote", "Multiple locations", unknown location.
+
+The place names are general geography, never per-site rules.
 """
 import re
 import unicodedata
+from typing import Literal
 
 from job_watch import config
 from job_watch.list_agent.extraction import CheckedOffer
@@ -39,6 +43,35 @@ SWISS_WORDS = {
     "riehen", "binningen", "langenthal", "burgdorf", "spiez", "interlaken", "visp", "brig", "davos",
     "st. moritz", "bulach", "wetzikon", "zofingen", "wohlen", "lenzburg", "brugg", "solothurn",
 }
+FOREIGN_WORDS = {
+    # countries (English, and the local or French, German, Italian names when they differ)
+    "france", "germany", "deutschland", "allemagne", "germania", "italy", "italia", "italie", "italien",
+    "austria", "osterreich", "autriche", "united kingdom", "uk", "england", "angleterre", "great britain",
+    "scotland", "ireland", "irland", "spain", "espana", "espagne", "spanien", "portugal", "netherlands",
+    "nederland", "pays-bas", "niederlande", "belgium", "belgique", "belgien", "luxembourg", "luxemburg",
+    "liechtenstein", "monaco", "poland", "polska", "pologne", "polen", "czech republic", "czechia",
+    "slovakia", "hungary", "romania", "bulgaria", "croatia", "serbia", "slovenia", "greece", "sweden",
+    "norway", "denmark", "finland", "estonia", "latvia", "lithuania", "united states", "usa", "u.s.",
+    "etats-unis", "vereinigte staaten", "canada", "mexico", "brazil", "bresil", "argentina", "chile",
+    "colombia", "peru", "china", "chine", "hong kong", "taiwan", "japan", "japon", "korea", "south korea",
+    "singapore", "singapour", "india", "inde", "indonesia", "malaysia", "thailand", "vietnam",
+    "philippines", "australia", "australie", "new zealand", "united arab emirates", "uae", "qatar",
+    "saudi arabia", "bahrain", "kuwait", "israel", "turkey", "turkiye", "egypt", "morocco", "maroc",
+    "tunisia", "south africa", "nigeria", "kenya", "russia", "ukraine",
+    # large foreign cities
+    "london", "londres", "paris", "lyon", "marseille", "lille", "toulouse", "berlin", "munich", "munchen",
+    "frankfurt", "francfort", "hamburg", "dusseldorf", "cologne", "koln", "stuttgart", "vienna", "wien",
+    "vienne", "milan", "milano", "rome", "roma", "turin", "torino", "madrid", "barcelona", "lisbon",
+    "lisboa", "lisbonne", "porto", "amsterdam", "rotterdam", "brussels", "bruxelles", "dublin", "warsaw",
+    "warszawa", "krakow", "wroclaw", "prague", "praha", "budapest", "bucharest", "sofia", "athens",
+    "stockholm", "oslo", "copenhagen", "helsinki", "new york", "san francisco", "boston", "chicago",
+    "los angeles", "miami", "houston", "dallas", "seattle", "atlanta", "toronto", "montreal", "vancouver",
+    "mexico city", "sao paulo", "buenos aires", "tokyo", "osaka", "shanghai", "beijing", "shenzhen",
+    "seoul", "taipei", "mumbai", "bangalore", "bengaluru", "delhi", "new delhi", "chennai", "hyderabad",
+    "pune", "kuala lumpur", "bangkok", "jakarta", "manila", "ho chi minh", "sydney", "melbourne",
+    "dubai", "abu dhabi", "doha", "riyadh", "tel aviv", "istanbul", "johannesburg", "cape town", "cairo",
+    "moscow",
+}
 # Canton and country codes: upper case whole words only ("GE" in "Meyrin, GE"), never lower case words
 SWISS_CODES = {
     "CH", "ZH", "BE", "LU", "UR", "SZ", "OW", "NW", "GL", "ZG", "FR", "SO", "BS", "BL", "SH", "AR", "AI",
@@ -54,6 +87,8 @@ def _fold(text: str) -> str:
 
 _SWISS_WORDS = re.compile(r"(?<![\w-])(?:" + "|".join(sorted((re.escape(w) for w in SWISS_WORDS), key=len,
                                                               reverse=True)) + r")(?![\w-])")
+_FOREIGN_WORDS = re.compile(r"(?<![\w-])(?:" + "|".join(sorted((re.escape(w) for w in FOREIGN_WORDS), key=len,
+                                                                  reverse=True)) + r")(?![\w-])")
 _SWISS_CODES = re.compile(r"(?<![\w-])(?:" + "|".join(sorted(SWISS_CODES)) + r")(?![\w-])")
 
 
@@ -62,13 +97,20 @@ def is_it_title(title: str) -> bool:
     return any(re.search(rf"\b{re.escape(k)}\b", title, re.IGNORECASE) for k in config.KEYWORDS)
 
 
-def in_switzerland(location: str) -> bool | None:
-    """True for a Swiss place, False for another one, None when the location is unknown."""
-    if not location.strip() or _fold(location) == "unknown":
-        return None
-    return bool(_SWISS_WORDS.search(_fold(location)) or _SWISS_CODES.search(location))
+LocationVerdict = Literal["switzerland", "abroad", "unknown"]
+
+
+def location_verdict(location: str) -> LocationVerdict:
+    """switzerland: a Swiss place is named. abroad: only a foreign country or large foreign city
+    is named. unknown: anything else (empty, "unknown", "Remote", a town in neither list)."""
+    folded = _fold(location)
+    if _SWISS_WORDS.search(folded) or _SWISS_CODES.search(location):
+        return "switzerland"
+    if _FOREIGN_WORDS.search(folded):
+        return "abroad"
+    return "unknown"
 
 
 def keep(offer: CheckedOffer) -> bool:
-    """IT title, and location in Switzerland or unknown."""
-    return is_it_title(offer.title) and in_switzerland(offer.location) is not False
+    """IT title, and location not clearly abroad."""
+    return is_it_title(offer.title) and location_verdict(offer.location) != "abroad"

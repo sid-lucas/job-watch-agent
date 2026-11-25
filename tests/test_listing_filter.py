@@ -1,9 +1,9 @@
-"""Filter on listed offers: IT title (keywords of user_config) and Swiss location."""
+"""Filter on listed offers: IT title (keywords of user_config), location not clearly abroad."""
 import pytest
 
 from job_watch.list_agent.extraction import CheckedOffer
 from job_watch.offers import listing_filter
-from job_watch.offers.listing_filter import in_switzerland, is_it_title, keep
+from job_watch.offers.listing_filter import is_it_title, keep, location_verdict
 
 
 @pytest.fixture(autouse=True)
@@ -17,30 +17,35 @@ def offer(title, location):
 
 
 @pytest.mark.parametrize("location, expected", [
-    ("Meyrin, GE, Switzerland", True),
-    ("Genève", True),
-    ("Zurich", True),
-    ("Bern, Switzerland", True),
-    ("Le Brassus", True),
-    ("Biel/Bienne", True),
-    ("Plan-les-Ouates", True),
-    ("Lugano, TI", True),
-    ("St. Gallen", True),
-    ("Singapore", False),
-    ("London, United Kingdom", False),
-    ("New York, NY", False),
-    ("Geneva, Illinois", True),         # known false positive: the town name wins
-    ("unknown", None),
-    ("", None),
+    ("Meyrin, GE, Switzerland", "switzerland"),
+    ("Genève", "switzerland"),
+    ("Zurich", "switzerland"),
+    ("Le Brassus", "switzerland"),
+    ("Biel/Bienne", "switzerland"),
+    ("Lugano, TI", "switzerland"),
+    ("St. Gallen", "switzerland"),
+    ("Geneva or London", "switzerland"),        # one Swiss place is enough
+    ("Geneva, Illinois", "switzerland"),        # known false positive: kept, the funnel prefers it
+    ("Singapore", "abroad"),
+    ("London, United Kingdom", "abroad"),
+    ("New York, NY", "abroad"),
+    ("Lyon, France", "abroad"),
+    ("Remote - Germany", "abroad"),
+    ("Gossau", "unknown"),                      # small Swiss town missing from the list
+    ("Remote", "unknown"),
+    ("Multiple locations", "unknown"),
+    ("unknown", "unknown"),
+    ("", "unknown"),
 ])
-def test_swiss_locations(location, expected):
-    assert in_switzerland(location) is expected
+def test_location_verdict(location, expected):
+    assert location_verdict(location) == expected
 
 
-def test_codes_are_upper_case_whole_words_only():
-    assert in_switzerland("Lyon, France") is False         # "fr" inside a word, lower case
-    assert in_switzerland("Basel-Stadt") is True
-    assert in_switzerland("Bernalillo") is False             # "bern" inside a longer word
+def test_codes_and_names_are_whole_words_only():
+    assert location_verdict("Basel-Stadt") == "switzerland"
+    assert location_verdict("Bernalillo") == "unknown"          # "bern" inside a longer word
+    assert location_verdict("Parisot") == "unknown"             # "paris" inside a longer word
+    assert location_verdict("fr") == "unknown"                  # codes count in upper case only
 
 
 @pytest.mark.parametrize("title, expected", [
@@ -54,9 +59,11 @@ def test_it_titles(title, expected):
     assert is_it_title(title) is expected
 
 
-def test_keep_needs_an_it_title_and_a_swiss_or_unknown_location():
+def test_keep_needs_an_it_title_and_a_location_not_clearly_abroad():
     assert keep(offer("Security Engineer", "Geneva"))
     assert keep(offer("Security Engineer", "unknown"))
+    assert keep(offer("Security Engineer", "Remote"))
+    assert keep(offer("Security Engineer", "Gossau"))
     assert not keep(offer("Security Engineer", "Singapore"))
     assert not keep(offer("Client Advisor", "Geneva"))
 
