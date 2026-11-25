@@ -33,6 +33,12 @@ class click(BaseModel):
         description="Why this element is clicked")
 
 
+class back_to_list(BaseModel):
+    """Go back to the list page after a click that left it (for example a link to a single offer
+    clicked by mistake). Only possible after a click that changed the page."""
+    model_config = ConfigDict(extra="forbid")
+
+
 class finish(BaseModel):
     """Stop: every page of the list has been read, or the list cannot be read further."""
     model_config = ConfigDict(extra="forbid")
@@ -41,7 +47,7 @@ class finish(BaseModel):
     explanation: str = Field(max_length=300, description="One short sentence: why you stop now")
 
 
-SCHEMAS = (observe, click, finish)
+SCHEMAS = (observe, click, back_to_list, finish)
 
 
 def _untrusted(text: str) -> str:
@@ -79,7 +85,7 @@ def _label(refusal: Refusal) -> str:
 
 
 def element_verdict(element: Element, page_host: str, acceptance_fallback: bool) -> str:
-    """Hint shown to the LLM: the purposes the click rules would accept, or why none is.
+    """Hint shown to the LLM: whether the click rules would accept the element, or why not.
 
     Same rules as session.click(), which checks again at click time: the hint is never trusted.
     A same-site link that robots.txt forbids is also marked (access.can_fetch, as the guard).
@@ -89,8 +95,10 @@ def element_verdict(element: Element, page_host: str, acceptance_fallback: bool)
     if "pagination" in allowed and element.href and urlsplit(element.href).scheme in ("http", "https") \
             and not access.can_fetch(element.href):
         return "[blocked: robots.txt]"
+    if allowed == ["pagination"]:
+        return "[allowed]"      # the click is permitted; whether it is pagination is for the LLM to judge
     if allowed:
-        return f"[ok: {', '.join(allowed)}]"
+        return f"[allowed: {', '.join(allowed)}]"
     if element.in_consent:
         # Acceptance reason first, unless the control has no acceptance word at all
         refusal = refusals["cookie_acceptance"]
@@ -137,6 +145,12 @@ def make_tools(session: SessionThread) -> list[StructuredTool]:
             notes.append("The cookie refusal broke the list: accepting cookies is now allowed on this site.")
         return " ".join(["Clicked.", *notes, "Element numbers are now invalid: call observe."])
 
+    def run_back_to_list() -> str:
+        result = session.back_to_list()
+        if not result.done:
+            return f"Refused, nothing happened: {result.reason} ({result.detail})."
+        return "Back on the list page. Element numbers are now invalid: call observe."
+
     def run_finish(reason: str, explanation: str) -> str:
         # The explanation is only logged (agent trail, via the tool call): never used to decide anything
         return f"Finished: {reason}."
@@ -145,6 +159,8 @@ def make_tools(session: SessionThread) -> list[StructuredTool]:
         StructuredTool.from_function(run_observe, name="observe", description=observe.__doc__,
                                      args_schema=observe),
         StructuredTool.from_function(run_click, name="click", description=click.__doc__, args_schema=click),
+        StructuredTool.from_function(run_back_to_list, name="back_to_list", description=back_to_list.__doc__,
+                                     args_schema=back_to_list),
         StructuredTool.from_function(run_finish, name="finish", description=finish.__doc__,
                                      args_schema=finish),
     ]

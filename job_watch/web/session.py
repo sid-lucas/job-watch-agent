@@ -143,16 +143,28 @@ class ClickResult(BaseModel):
     acceptance_fallback: bool = False   # a cookie refusal broke the list: acceptance now allowed on this host
 
 
+class BackResult(BaseModel):
+    done: bool
+    reason: Literal["no_list_page", "already_on_list", "budget", "navigation_failed"] | None = None
+    detail: str = ""
+    url_before: str
+    url_after: str
+
+
 class TrailEvent(BaseModel):
     seconds: float              # since the session started
     kind: Literal["navigation_allowed", "navigation_refused", "popup_closed", "download_refused",
                   "dialog_dismissed", "observe", "click", "click_refused", "cookie_accepted",
-                  "cookie_refusal_failed", "returned_to_start"]
+                  "cookie_refusal_failed", "returned_to_start", "back_to_list", "back_to_list_refused"]
     detail: str
 
 
 class SessionError(Exception):
     """The start page could not be opened (refused navigation or load failure)."""
+
+
+def _without_fragment(url: str) -> str:
+    return url.split("#", 1)[0]
 
 
 class BrowserSession:
@@ -171,9 +183,11 @@ class BrowserSession:
         self.clicks = 0
         self.trail: list[TrailEvent] = []
         self.last_observation: Observation | None = None
+        self.observations: list[Observation] = []              # every observation of the session, in order
         self._previous_lines: list[str] = []                   # full text lines of the last observation
         self._elements: dict[int, tuple[Element, Frame]] = {}  # valid ids: last observation, no click since
         self._fallback_hosts: set[str] = set()                 # set only by _refusal_broke_list()
+        self._list_url: str | None = None                      # page left by the last pagination click
         self._started = time.monotonic()
 
     # ---------- lifecycle ----------
@@ -235,6 +249,7 @@ class BrowserSession:
         )
         self._elements = {element.id: (element, frame) for element, frame in elements}
         self.last_observation = observation
+        self.observations.append(observation)
         self._log("observe", f"{len(observation.elements)} elements, {len(text)} chars, {len(new)} new lines, "
                                 f"{len(iframes)} iframes")
         return observation
@@ -311,10 +326,52 @@ class BrowserSession:
         self._log(kind, f"{host} [{element_id}] {purpose} {element.name[:80]!r}")
         result = ClickResult(element_id=element_id, purpose=purpose, clicked=True, url_before=url_before,
                              url_after=self.page.url, navigation_refused=self._refused_since(mark))
+        if purpose == "pagination" and _without_fragment(self.page.url) != _without_fragment(url_before):
+            self._list_url = url_before     # the page this click left, for back_to_list()
         if purpose == "cookie_refusal" and self._refusal_broke_list(url_before):
             result.acceptance_fallback = True
             result.url_after = self.page.url
         return result
+
+    def back_to_list(self) -> BackResult:
+        """Return to the page left by the last pagination click that changed the URL.
+
+        Only that page (already visited, so already allowed by the guard), at most once per
+        such click, counted in the click budget. Browser history first (keeps the state of
+        script-driven lists), then a guarded navigation to that URL if history leads elsewhere.
+        """
+        before = self.page.url
+        target = self._list_url
+        refusal = None
+        if target is None:
+            refusal = ("no_list_page", "no pagination click has left a page since the last return")
+        elif _without_fragment(before) == _without_fragment(target):
+            refusal = ("already_on_list", "the current page is the list page")
+        elif self.clicks >= self.max_clicks:
+            refusal = ("budget", f"{self.max_clicks} clicks reached")
+        if refusal:
+            self._log("back_to_list_refused", f"{refusal[0]} ({refusal[1]})")
+            return BackResult(done=False, reason=refusal[0], detail=refusal[1], url_before=before, url_after=before)
+
+        self.clicks += 1
+        self._elements = {}
+        self._list_url = None
+        mark = len(self.trail)
+        try:
+            self.page.go_back(wait_until="domcontentloaded", timeout=PAGE_TIMEOUT_MS)
+            if _without_fragment(self.page.url) != _without_fragment(target):
+                self.page.goto(target, wait_until="domcontentloaded", timeout=PAGE_TIMEOUT_MS)
+            self._settle()
+        except PlaywrightError as error:
+            self._log("back_to_list_refused", f"navigation_failed ({str(error)[:120]})")
+            return BackResult(done=False, reason="navigation_failed", detail=str(error)[:150], url_before=before,
+                              url_after=self.page.url)
+        if self._refused_since(mark) or _without_fragment(self.page.url) != _without_fragment(target):
+            self._log("back_to_list_refused", f"navigation_failed (now on {self.page.url})")
+            return BackResult(done=False, reason="navigation_failed", detail=f"now on {self.page.url}",
+                              url_before=before, url_after=self.page.url)
+        self._log("back_to_list", f"{before} -> {self.page.url}")
+        return BackResult(done=True, url_before=before, url_after=self.page.url)
 
     def _refusal_broke_list(self, url_before: str) -> bool:
         """After a cookie refusal: redirect away from the list, or a refusal control still shown.

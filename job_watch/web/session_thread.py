@@ -8,7 +8,7 @@ waits for the result (or the exception).
 from concurrent.futures import ThreadPoolExecutor
 
 from job_watch.web.click_rules import Purpose
-from job_watch.web.session import BrowserSession, ClickResult, Observation, TrailEvent
+from job_watch.web.session import BackResult, BrowserSession, ClickResult, Observation, TrailEvent
 
 
 class SessionThread:
@@ -41,6 +41,13 @@ class SessionThread:
 
     def click(self, element_id: int, purpose: Purpose) -> ClickResult:
         return self._run(self._session.click, element_id, purpose)
+
+    def back_to_list(self) -> BackResult:
+        return self._run(self._session.back_to_list)
+
+    @property
+    def observations(self) -> list[Observation]:
+        return list(self._session.observations)
 
     @property
     def trail(self) -> list[TrailEvent]:

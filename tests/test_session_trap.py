@@ -284,8 +284,30 @@ def test_current_page_and_disabled_marks(site):
     with session(base, "list2.html") as s:
         obs = s.observe()
         assert find(obs, "2").aria_current and not find(obs, "3").aria_current
-        assert "'2' [current] [ok: pagination]" in format_observation(obs)
+        assert "'2' [current] [allowed]" in format_observation(obs)
         assert s.click(find(obs, "Next", "/list3.html").id, "pagination").clicked
         obs = s.observe()
         assert find(obs, "Next").disabled
-        assert "'Next' [disabled] [ok: pagination]" in format_observation(obs)
+        assert "'Next' [disabled] [allowed]" in format_observation(obs)
+
+
+def test_back_to_list_after_leaving_the_list(site):
+    base, _ = site
+    with session(base, "list1.html") as s:
+        assert s.back_to_list().reason == "no_list_page"              # nothing left yet
+        assert s.click(find(s.observe(), "Next", "/list2.html", target=None).id, "pagination").clicked
+        # An offer link passes the click rules: the agent may click it by mistake
+        assert s.click(find(s.observe(), "Trap Offer 2-A", "/offer2a.html").id, "pagination").clicked
+        assert s.page.url.endswith("/offer2a.html")
+        result = s.back_to_list()
+        assert result.done and result.url_after.endswith("/list2.html")
+        assert "Trap Offer 2-B" in s.observe().text
+        assert s.back_to_list().reason in ("no_list_page", "already_on_list")   # once per click that left
+        assert s.clicks == 3                                                     # counted in the budget
+
+
+def test_back_to_list_respects_the_budget(site):
+    base, _ = site
+    with session(base, "list2.html", max_clicks=1) as s:
+        assert s.click(find(s.observe(), "Trap Offer 2-A", "/offer2a.html").id, "pagination").clicked
+        assert s.back_to_list().reason == "budget"

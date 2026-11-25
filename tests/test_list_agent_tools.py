@@ -23,7 +23,7 @@ def robots(monkeypatch):
 
 
 @pytest.mark.parametrize("element, fallback, expected", [
-    (link("Next", PAGE + "?page=2"), False, "[ok: pagination]"),
+    (link("Next", PAGE + "?page=2"), False, "[allowed]"),
     (link("Next", "https://other.example.org/list?page=2"), False, "[blocked: other site]"),
     (link("Page 2", PAGE + "?page=2", target="_blank"), False, "[blocked: new tab]"),
     (link("Next", PAGE + "?page=2", download=True), False, "[blocked: download]"),
@@ -34,10 +34,10 @@ def robots(monkeypatch):
     (button("Search"), False, "[blocked: search, sort, filter or menu]"),
     (Element(id=1, tag="button", role="tab", text="Interns", name="Interns"), False,
      "[blocked: not a plain link or button]"),
-    (button("Decline", in_consent=True), False, "[ok: cookie_refusal]"),
+    (button("Decline", in_consent=True), False, "[allowed: cookie_refusal]"),
     (button("Decline"), False, "[blocked: cookie consent outside a detected banner]"),
     (button("Accept all", in_consent=True), False, "[blocked: acceptance only after a failed refusal]"),
-    (button("Accept all", in_consent=True), True, "[ok: cookie_acceptance]"),
+    (button("Accept all", in_consent=True), True, "[allowed: cookie_acceptance]"),
     (button("Preferences", in_consent=True), False, "[blocked: cookie preferences]"),
     (link("privacy statement", PAGE + "/privacy", in_consent=True), False, "[blocked: not a refusal]"),
 ])
