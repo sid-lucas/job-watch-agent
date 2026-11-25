@@ -13,6 +13,7 @@ import unicodedata
 from typing import Literal
 from urllib.parse import urlsplit
 
+import tldextract
 from pydantic import BaseModel
 
 Purpose = Literal["pagination", "cookie_refusal", "cookie_acceptance"]
@@ -49,6 +50,22 @@ class Refusal(BaseModel):
 def site_host(url: str) -> str:
     """Host of a URL, lower case, without a leading 'www.' (bcn.ch = www.bcn.ch)."""
     return (urlsplit(url).hostname or "").lower().removeprefix("www.")
+
+
+# Public suffix list snapshot shipped with tldextract: no network access at run time. Private
+# suffixes count (a.github.io and b.github.io are two sites).
+_PUBLIC_SUFFIXES = tldextract.TLDExtract(suffix_list_urls=(), cache_dir=None, include_psl_private_domains=True)
+
+
+def site_domain(url: str) -> str:
+    """Registrable domain of a URL (eTLD+1: careers.example.com and jobs.example.com -> example.com).
+
+    Used for offer links only (an applicant tracking system may list on one subdomain and show
+    offers on another); clicks and the browser guard keep the exact host. Falls back to
+    site_host() for an IP address or a host without public suffix (localhost).
+    """
+    host = site_host(url)
+    return _PUBLIC_SUFFIXES(host).top_domain_under_public_suffix or host
 
 
 def _words(*patterns: str) -> re.Pattern:

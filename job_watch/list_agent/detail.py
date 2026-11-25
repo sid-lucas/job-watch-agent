@@ -18,7 +18,7 @@ from job_watch import config
 from job_watch.list_agent.extraction import CheckedOffer, _fold, find_in
 from job_watch.list_agent.tools import _untrusted
 from job_watch.llm import call_with_retry, structured_llm
-from job_watch.web.click_rules import site_host
+from job_watch.web.click_rules import site_domain
 from job_watch.web.session import BrowserSession, SessionError
 
 SkipReason = Literal["not_new", "not_kept", "no_link", "other_site", "shared_link", "budget"]
@@ -40,11 +40,11 @@ def plan_details(offers: list[CheckedOffer], new_keys: list[str], kept_keys: lis
     """Offers whose page will be opened, and why the others are not.
 
     A link shared by several offers is the page of none of them (a generic "Jobs" link):
-    all those offers are set aside. The site is checked again here (defense in depth: the
-    extraction already empties links to another site), and again by the guard when the page
-    is opened.
+    all those offers are set aside. The registrable domain is checked again here (defense in
+    depth: the extraction already empties links to another site), and the browser guard keeps
+    the page on the exact host of the offer link when it is opened.
     """
-    new, kept, host = set(new_keys), set(kept_keys), site_host(list_url)
+    new, kept, domain = set(new_keys), set(kept_keys), site_domain(list_url)
     links = Counter(o.link for o in offers if o.link)
     to_open, skipped = [], []
     for offer in offers:
@@ -54,7 +54,7 @@ def plan_details(offers: list[CheckedOffer], new_keys: list[str], kept_keys: lis
             reason = "not_kept"
         elif not offer.link:
             reason = "no_link"
-        elif site_host(offer.link) != host:
+        elif site_domain(offer.link) != domain:
             reason = "other_site"
         elif links[offer.link] > 1:
             reason = "shared_link"
@@ -93,9 +93,9 @@ def open_detail(offer: CheckedOffer, list_url: str, **session_options) -> Detail
     except SessionError as error:
         return DetailPage(key=offer.key, url=offer.link, text="", truncated=False, failure="not_allowed",
                           detail=str(error)[:150])
-    if site_host(obs.url) != site_host(list_url):
+    if site_domain(obs.url) != site_domain(list_url):
         return DetailPage(key=offer.key, url=obs.url, text="", truncated=False, failure="redirected",
-                          detail=f"now on {site_host(obs.url)}")
+                          detail=f"now on {site_domain(obs.url)}")
     text = obs.new_text_full        # first observation: every line of the page, never cut
     if find_in(text, offer.title) is None:
         return DetailPage(key=offer.key, url=obs.url, text="", truncated=False, failure="title_not_found",

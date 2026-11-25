@@ -42,6 +42,8 @@ def main():
     print(f"\ndetails: {len(details.details)} extracted, {len(details.refused_pages)} pages refused, "
           f"{len(details.failed_extractions)} extractions failed, {len(details.skipped)} offers not opened")
     print("models: " + (", ".join(f"{n} {c}" for n, c in details.model_calls.items()) or "no LLM call"))
+    for skipped in details.skipped:
+        print(f"  not opened: {skipped.title[:60]!r} {skipped.reason}")
     for page in details.refused_pages:
         print(f"  refused: {page.key} {page.failure} ({page.detail})")
     for d in details.details:

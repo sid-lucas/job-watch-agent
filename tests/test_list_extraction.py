@@ -144,3 +144,20 @@ def test_quick_eval_cases_exist_and_cover_both_lists():
     assert [c.company for c in quick] == list(QUICK_CASES)
     assert {c.company_list for c in quick} == {"banks_security", "watchmakers"}
     assert len(select_cases()) == 12
+
+
+def test_offer_links_on_another_subdomain_of_the_list_domain_are_kept():
+    from job_watch.list_agent.extraction import ChunkOffer, ChunkOffers, check_offers
+    from job_watch.web.session import Element
+    elements = [Element(id=1, tag="a", role="link", text="Security Engineer", name="Security Engineer",
+                        href="https://jobs.smartrecruiters.com/SCRT/7439"),
+                Element(id=2, tag="a", role="link", text="Apply for Data Analyst", name="Apply for Data Analyst",
+                        href="https://evil.example/apply")]
+    answer = ChunkOffers(offers=[
+        ChunkOffer(title="Security Engineer", location="Bern", link="https://jobs.smartrecruiters.com/SCRT/7439",
+                   reference=""),
+        ChunkOffer(title="Data Analyst", location="Bern", link="https://evil.example/apply", reference="")])
+    checked = check_offers("Security Engineer\nBern\nData Analyst\nBern", answer, elements,
+                           "https://careers.smartrecruiters.com/SCRT")
+    assert [(o.title, bool(o.link), o.verified) for o in checked] == [
+        ("Security Engineer", True, True), ("Data Analyst", False, False)]

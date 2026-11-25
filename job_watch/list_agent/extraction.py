@@ -13,7 +13,7 @@ from pydantic import BaseModel, Field
 
 from job_watch.list_agent.tools import _untrusted
 from job_watch.llm import call_with_retry, structured_llm
-from job_watch.web.click_rules import normalise, site_host
+from job_watch.web.click_rules import normalise, site_domain
 from job_watch.web.session import Element, Observation
 
 CHUNK_CHARS = 8000      # target size of one chunk sent to the extractor
@@ -146,12 +146,12 @@ def find_in(text: str, value: str) -> str | None:
 def check_offers(chunk: str, answer: ChunkOffers, elements: list[Element], page_url: str) -> list[CheckedOffer]:
     """Keep only what the page supports. An offer whose title is not in the chunk is dropped.
 
-    A link is kept only if it is the href of an element of the observation, on the same site
-    as the list page (same rule as for clicks: an "Apply for <title>" link to another site
-    must not become the link of the offer).
+    A link is kept only if it is the href of an element of the observation, on the same
+    registrable domain as the list page (an "Apply for <title>" link to another site must not
+    become the link of the offer; jobs.example.com is accepted for a list on careers.example.com).
     """
-    host = site_host(page_url)
-    hrefs = {e.href for e in elements if e.href and site_host(e.href) == host}
+    domain = site_domain(page_url)
+    hrefs = {e.href for e in elements if e.href and site_domain(e.href) == domain}
     checked = []
     for offer in answer.offers:
         title = find_in(chunk, offer.title)

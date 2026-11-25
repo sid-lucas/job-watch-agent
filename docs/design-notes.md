@@ -99,6 +99,7 @@ Built so far (`job_watch/web/`):
 - `observe()`: the visible text and the clickable elements of the page, numbered by the code, with the facts the guardrails need (visible text, accessible name, link target, form, cookie banner, iframe). It also gives the text that is new since the previous observation (`new_content.py`), so that a click that brings nothing can stop the agent, and only new content is sent to the LLM.
 - `click(element_id, purpose)`: purpose is `pagination`, `cookie_refusal` or `cookie_acceptance`. Before clicking, the code checks: the number comes from the last observation, the click budget, the rules of `click_rules.py`, and that the element has not changed since it was observed (protection against a page swapping a button between check and use). Never a forced click.
 - `click_rules.py`: pure rules, testable without a browser. Only links and buttons; never in a form with fields; forbidden actions refused in EN/FR/DE/IT (apply, sign in, register, save, subscribe, submit...); no link to another host, no download, no new tab; no sort, filter or search (they change the scope of the list).
+- Offer links (extraction and detail phase): kept only on the same registrable domain (eTLD+1, public suffix list shipped with `tldextract`, private suffixes included, no network access) as the list page, because an applicant tracking system may list on one subdomain and show offers on another (`careers.` and `jobs.smartrecruiters.com`). Clicks and the browser guard keep the exact host; robots.txt and blocked domains apply to every page opened.
 - Cookie banners: refusal first. Acceptance is allowed only as a fallback, decided by the code (never by the agent or the page), when the refusal breaks access to the list (redirect, banner coming back), only inside a cookie banner, and always logged. Preferences are never opened. The browser context is disposable, so accepted cookies only follow an anonymous robot.
 
 Tests:
@@ -116,6 +117,7 @@ Known limitations:
 - On a growing list whose pagination sits above the offers and never changes, that pagination is hidden from the agent.
 - The new text sent to the agent is cut at 30000 characters.
 - The forbidden-action words cover four languages; other languages rely on the other guardrails (forms, navigation interception).
+- On a shared applicant tracking system domain, an offer link to another company on the same domain is accepted; the detail page must still contain the offer title.
 - Detail extraction: a value quoted from an injection in the page (a requirement, a contract word) passes the checks; it stays data, with no effect on what the program does.
 
 ## LLM usage
@@ -127,6 +129,7 @@ Known limitations:
 - Structured output with Pydantic schemas: answers are typed and checked in code.
 - Two judges: `page_judge` (is this page a job list?, V1.1) and `offer_judge` (does this offer still exist?, V1.3).
 - LLM chain (`LLM_CHAIN` in `config.py`): Gemini models first, local `qwen3:8b` (Ollama) as last resort when the cloud is overloaded. `LLM_ONLY=ollama` runs a script with the local model only.
+- Timeouts per request: 30 s for Gemini, 180 s for Ollama (last model, slow on long pages). A Gemini model that answers with a quota error (429) is skipped for the rest of the run. Calls answered, failed and skipped are counted per model and reported by the evals.
 - Local model measured with the judge eval: 9/10, but it can wrongly answer `owner=no` (stops link following) and infer missing locations. Good enough for extraction, weaker as a judge.
 
 ## Web access and security

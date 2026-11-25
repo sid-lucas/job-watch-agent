@@ -90,3 +90,10 @@ def test_a_contract_not_stated_in_the_page_becomes_unknown():
     assert not contract_stated("fixed_term", "unbefristet")            # whole words only
     assert contract_stated("apprenticeship", "Lehrstelle als Informatiker EFZ")
     assert contract_stated("unknown", "")
+
+
+def test_an_offer_page_on_another_subdomain_of_the_list_domain_is_opened():
+    offers = [offer("a", "https://jobs.example.com/a"), offer("b", "https://evil.example.org/b")]
+    plan = plan_details(offers, new_keys=["a", "b"], kept_keys=["a", "b"],
+                        list_url="https://careers.example.com/list")
+    assert [o.key for o in plan.to_open] == ["a"] and reasons(plan) == {"b": "other_site"}

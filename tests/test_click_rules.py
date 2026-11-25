@@ -185,3 +185,14 @@ def test_acceptance_pending_needs_the_fallback_and_an_acceptance_control():
     assert acceptance_pending([nxt, accept], "jobs.example.com", True)
     assert not acceptance_pending([nxt, accept], "jobs.example.com", False)
     assert not acceptance_pending([nxt], "jobs.example.com", True)
+
+
+def test_site_domain_is_the_registrable_domain():
+    from job_watch.web.click_rules import site_domain
+    assert site_domain("https://careers.smartrecruiters.com/SCRT") == site_domain(
+        "https://jobs.smartrecruiters.com/SCRT/7439") == "smartrecruiters.com"
+    assert site_domain("https://www.bcn.ch/emplois") == "bcn.ch"
+    assert site_domain("https://jobs.example.co.uk/x") == "example.co.uk"
+    assert site_domain("https://a.github.io/") != site_domain("https://b.github.io/")   # private suffix
+    assert site_domain("http://127.0.0.1:8765/list") == "127.0.0.1"                    # no suffix: host
+    assert site_domain("https://evil.example/apply") != site_domain("https://jobs.example.com/")

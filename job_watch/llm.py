@@ -9,6 +9,7 @@ from functools import cache
 
 from dotenv import load_dotenv
 from langchain_core.callbacks import BaseCallbackHandler
+from langchain_core.runnables import Runnable, RunnableLambda
 from langchain_google_genai import ChatGoogleGenerativeAI
 from langchain_ollama import ChatOllama
 
@@ -34,7 +35,7 @@ class _UnsupportedSchemaKey(logging.Filter):
 logging.getLogger("langchain_google_genai._function_utils").addFilter(_UnsupportedSchemaKey())
 
 
-_calls: Counter[str] = Counter()     # "provider:model" -> answers; "provider:model failed" -> errors
+_calls: Counter[str] = Counter()     # "provider:model" -> answers, "... failed" -> errors, "... skipped"
 _calls_lock = threading.Lock()
 
 
@@ -51,6 +52,38 @@ class _CallCounter(BaseCallbackHandler):
     def on_llm_error(self, error, **kwargs) -> None:
         with _calls_lock:
             _calls[f"{self.name} failed"] += 1
+            if _is_quota_error(error):
+                _out_of_quota.add(self.name)
+
+
+# Models that answered with a quota error (HTTP 429): skipped for the rest of the process, so
+# each call goes straight to the next model of the chain instead of waiting for a new refusal
+_out_of_quota: set[str] = set()
+
+
+class ModelSkipped(Exception):
+    """Raised instead of calling a model already out of quota; the fallback takes the call."""
+
+
+def _is_quota_error(error: BaseException) -> bool:
+    text = str(error)
+    return getattr(error, "code", None) == 429 or "429" in text or "RESOURCE_EXHAUSTED" in text
+
+
+def _skip_if_out_of_quota(name: str):
+    def check(value):
+        with _calls_lock:
+            if name in _out_of_quota:
+                _calls[f"{name} skipped"] += 1
+                raise ModelSkipped(f"{name} is out of quota for this run")
+        return value
+    return RunnableLambda(check, name=f"skip_if_out_of_quota[{name}]")
+
+
+def _chain(runnables: list) -> Runnable:
+    """Models in order, each skipped once it is out of quota, with fallbacks to the next ones."""
+    guarded = [_skip_if_out_of_quota(name) | runnable for name, runnable in runnables]
+    return guarded[0].with_fallbacks(guarded[1:]) if len(guarded) > 1 else guarded[0]
 
 
 def model_calls() -> dict[str, int]:
@@ -89,9 +122,10 @@ def llm_chain() -> list[tuple[str, str]]:
 
 @cache
 def structured_llm(schema):
-    """Models of the chain, each returning the given Pydantic schema, tried in order."""
-    runnables = [_client(provider, model).with_structured_output(schema) for provider, model in llm_chain()]
-    return runnables[0].with_fallbacks(runnables[1:]) if len(runnables) > 1 else runnables[0]
+    """Models of the chain, each returning the given Pydantic schema, tried in order (a model out of
+    quota is skipped)."""
+    return _chain([(f"{provider}:{model}", _client(provider, model).with_structured_output(schema))
+                   for provider, model in llm_chain()])
 
 
 
@@ -102,8 +136,8 @@ def tool_llm(tools: tuple):
     Binding is done per model before the fallbacks are chained: a fallback model receives
     the same tool schemas. The answer is an AIMessage; its tool_calls are requests only.
     """
-    runnables = [_client(provider, model).bind_tools(list(tools)) for provider, model in llm_chain()]
-    return runnables[0].with_fallbacks(runnables[1:]) if len(runnables) > 1 else runnables[0]
+    return _chain([(f"{provider}:{model}", _client(provider, model).bind_tools(list(tools)))
+                   for provider, model in llm_chain()])
 
 
 def call_with_retry(func, *args, attempts: int = 2, wait_seconds: int = 5):
