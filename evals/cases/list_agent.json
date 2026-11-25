@@ -127,7 +127,7 @@
       "company_list": "watchmakers",
       "url": "https://careers.breitling.com/search/?locale=en_GB",
       "pagination": "numbered",
-      "expected_pages": 7,
+      "expected_pages": 8,
       "expected_total": 69,
       "total_source": "stated_by_page",
       "total_text": "1 to 10 of 69 results",
@@ -138,7 +138,7 @@
         {"title": "HR Business Partner - South Korea (f/m/x)", "page": 1},
         {"title": "Senior Accountant with French or German (f/m/x)", "page": 3}
       ],
-      "notes": "10 offers per page, numbered pages 1 to 7 plus 'Next'."
+      "notes": "10 offers per page, numbered pages 1 to 7 plus 'Next' (2026-11-24). On 2026-11-25 the agent reached a page 8 with new offers: the list grew, expected_total (69) is from 2026-11-24."
     },
     {
       "company": "Chopard",

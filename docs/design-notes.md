@@ -111,7 +111,7 @@ Next: the LangGraph agent (state, LLM with tools, loop, budgets), then offer ext
 
 Known limitations:
 - A cookie banner that is part of the normal page flow (not a floating dialog) is not recognised, so its buttons are refused (Lombard Odier); the list stays readable.
-- Pages with many controls: the element list is cut at 300 (UBS after a few "load more"), and the new text of one click can exceed the text limit.
+- Pages with many controls: the element list is cut at 1000 (raised from 300, which hid UBS's "Next" after two pages). On lists that grow at each click, the cap is still reached (UBS around page 11), and the new text of one click can exceed the text limit.
 - The forbidden-action words cover four languages; other languages rely on the other guardrails (forms, navigation interception).
 
 ## LLM usage
