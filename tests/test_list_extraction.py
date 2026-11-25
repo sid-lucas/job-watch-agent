@@ -136,3 +136,11 @@ def test_extract_observations_skips_empty_observations_and_counts_failures(monke
                                               obs("Broken")])
     assert [o.title for o in result.offers] == ["Analyst", "Engineer", "Tester"]   # "Engineer" seen twice
     assert (result.chunks, result.failed_chunks, result.dropped) == (3, 1, 2)
+
+
+def test_quick_eval_cases_exist_and_cover_both_lists():
+    from evals.check_list_agent import QUICK_CASES, select_cases
+    quick = select_cases(quick=True)
+    assert [c.company for c in quick] == list(QUICK_CASES)
+    assert {c.company_list for c in quick} == {"banks_security", "watchmakers"}
+    assert len(select_cases()) == 12

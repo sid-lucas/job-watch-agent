@@ -8,6 +8,7 @@ No Serper credits are used.
     python -m evals.check_list_agent --runner agent        # every case, agent
     python -m evals.check_list_agent --list watchmakers    # one company list
     python -m evals.check_list_agent --case UBS            # one case
+    python -m evals.check_list_agent --quick               # 3 cases only, after each small change
 """
 import argparse
 import json
@@ -28,6 +29,9 @@ from job_watch.offers.extract import MAX_CHARS, ListedOffer, extract_offers
 from job_watch.web.browser import render_page
 
 CASES_FILE = Path(__file__).parent / "cases" / "list_agent.json"
+# Quick check after each small change: two paginated banks lists and one watchmaker; all 12 cases
+# at the end of a step
+QUICK_CASES = ("Lombard Odier", "ICRC", "Rolex")
 
 
 # ---------- Cases (data file, validated at load time) ----------
@@ -68,6 +72,13 @@ class CaseFile(BaseModel):
 
 def load_cases(path: Path = CASES_FILE) -> list[ListCase]:
     return CaseFile.model_validate(json.loads(path.read_text(encoding="utf-8"))).cases
+
+
+def select_cases(company_list: str | None = None, company: str | None = None, quick: bool = False) -> list[ListCase]:
+    """Cases kept by the command line options, in file order."""
+    return [c for c in load_cases()
+            if (not company_list or c.company_list == company_list) and (not company or c.company == company)
+            and (not quick or c.company in QUICK_CASES)]
 
 
 # ---------- Runners ----------
@@ -247,12 +258,12 @@ def main() -> None:
     parser.add_argument("--runner", choices=sorted(RUNNERS), default="baseline")
     parser.add_argument("--list", choices=["banks_security", "watchmakers"])
     parser.add_argument("--case", help="company name of a single case")
+    parser.add_argument("--quick", action="store_true", help=f"only {', '.join(QUICK_CASES)}")
     parser.add_argument("--verbose", action="store_true", help="print the titles that are not grounded")
     parser.add_argument("--report", type=Path, help="write the metrics and extracted offers to this JSON file")
     args = parser.parse_args()
 
-    cases = [c for c in load_cases()
-             if (not args.list or c.company_list == args.list) and (not args.case or c.company == args.case)]
+    cases = select_cases(args.list, args.case, args.quick)
     metrics, skipped = [], 0
     for case in cases:
         print(f"... {case.company}", flush=True)

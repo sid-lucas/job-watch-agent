@@ -6,6 +6,7 @@ stop reason, LLM calls and input tokens, refusals. Calls the real LLM chain; no 
     python -m evals.check_list_navigation                       # every case
     python -m evals.check_list_navigation --list watchmakers    # one company list
     python -m evals.check_list_navigation --case UBS            # one case
+    python -m evals.check_list_navigation --quick               # 3 cases only, after each small change
     python -m evals.check_list_navigation --report PATH         # also write a JSON report
 """
 import argparse
@@ -14,7 +15,7 @@ from pathlib import Path
 
 from pydantic import BaseModel
 
-from evals.check_list_agent import ListCase, format_model_calls, load_cases, normalise
+from evals.check_list_agent import QUICK_CASES, ListCase, format_model_calls, normalise, select_cases
 from job_watch.llm import calls_since, model_calls
 from job_watch.list_agent.run import AgentRun, pages_reached, run_list_agent
 
@@ -76,10 +77,10 @@ def main():
     parser = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
     parser.add_argument("--list", choices=["banks_security", "watchmakers"])
     parser.add_argument("--case")
+    parser.add_argument("--quick", action="store_true", help=f"only {', '.join(QUICK_CASES)}")
     parser.add_argument("--report", type=Path)
     args = parser.parse_args()
-    cases = [c for c in load_cases()
-             if (not args.list or c.company_list == args.list) and (not args.case or c.company == args.case)]
+    cases = select_cases(args.list, args.case, args.quick)
     metrics = []
     for case in cases:
         print(f"... {case.company}", flush=True)
