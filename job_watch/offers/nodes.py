@@ -142,8 +142,20 @@ def deduplicate(state: JobState) -> dict:
 
 
 def save_results(state: JobState) -> dict:
-    """Node: store offers in the local database (already known offers are skipped)."""
-    new_offers = storage.save_offers(state["offers"])
+    """Node: store offers in the local database (already known offers are skipped).
+
+    The career-site collections go to listed_offers in the same transaction: an offer is
+    marked as seen only once it is stored.
+    """
+    collections = state.get("collections", [])
+
+    def write_listed(conn) -> None:
+        from job_watch.list_agent.collect import save_collection     # career sites only
+        for collection in collections:
+            save_collection(conn, collection, commit=False)
+
+    new_offers = storage.save_offers(state["offers"], before_commit=write_listed if collections else None)
     print(f"save_results: {len(new_offers)} new offers stored, "
-          f"{len(state['offers']) - len(new_offers)} already known")
+          f"{len(state['offers']) - len(new_offers)} already known"
+          + (f", {len(collections)} career-site lists recorded" if collections else ""))
     return {"new_offers": new_offers}

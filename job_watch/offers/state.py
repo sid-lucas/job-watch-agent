@@ -32,6 +32,9 @@ class JobState(TypedDict):
     """State shared by all nodes of the graph."""
     offers: list[Offer]
     new_offers: NotRequired[list[tuple[str, str]]]  # (company, key) of offers stored for the first time
+    # Career-site collections (list_agent.collect.CompanyCollection), written to listed_offers by
+    # save_results in the same transaction as the offers
+    collections: NotRequired[list]
     # Run options
     sources: NotRequired[list[str]]         # "rss", "career_sites" (default: both)
     companies: NotRequired[list[str]]       # career sites: only these registry companies (default: all)

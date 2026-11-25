@@ -6,7 +6,8 @@ offers (source "career_site") and follow the same funnel as RSS offers: keywords
 flags and score, storage, display. An offer without detail is still stored and scored on its
 title, company and location.
 
-A company that fails is logged and skipped: the others are still collected.
+A company that fails is logged and skipped: the others are still collected. Nothing is
+written here: save_results stores the offers and listed_offers together, at the end.
 """
 import traceback
 from datetime import datetime, timezone
@@ -58,6 +59,7 @@ def fetch_career_sites(state: JobState) -> dict:
     companies = registry_companies(load_registry(), state.get("companies"))
     print(f"fetch_career_sites: {len(companies)} companies", flush=True)
     fetched = datetime.now(timezone.utc).isoformat()
+    collections = list(state.get("collections", []))
     conn = connect_listed()
     try:
         for number, (company, url) in enumerate(companies, 1):
@@ -71,10 +73,12 @@ def fetch_career_sites(state: JobState) -> dict:
                 found = to_offers(collection, details, fetched)
                 log(f"{len(details.details)} detailed, {len(found) - len(details.details)} without detail")
                 offers += found
+                collections.append(collection)
             except Exception as error:      # one company must not stop the others
                 print(f"  [{number}/{len(companies)}] {company}: FAILED {type(error).__name__}: {error}",
                       flush=True)
                 traceback.print_exc(limit=3)
     finally:
         conn.close()
-    return {"offers": offers}
+    # listed_offers is written by save_results, with the offers (one transaction)
+    return {"offers": offers, "collections": collections}

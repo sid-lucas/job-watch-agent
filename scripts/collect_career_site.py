@@ -1,5 +1,7 @@
-"""Collect the offers of one company job list into listed_offers, and print a summary.
-With --details, also open the pages of the new offers kept and print what was extracted.
+"""Collect the offers of one company job list and print a summary (try run: nothing is written).
+"New" means not yet in listed_offers of the database. With --details, also open the pages of the
+new offers kept and print what was extracted. To store offers, use main.py: it writes listed_offers
+and offers together.
 
     python -u -m scripts.collect_career_site COMPANY URL [--db PATH] [--details]   # default: data/offers.db
 """

@@ -360,7 +360,7 @@ def test_extracted_offers_are_checked_against_the_page(site):
     assert checked["CISO"].link == "" and not checked["CISO"].verified    # injected: no link, never verified
 
 
-def test_collect_company_saves_new_offers_then_only_last_seen(site, tmp_path, monkeypatch):
+def test_collect_company_writes_nothing_and_save_collection_records_the_offers(site, tmp_path, monkeypatch):
     """Real browser on the trap page, fake agent (one observation) and fake extractor: no LLM."""
     from job_watch import config
     from job_watch.list_agent import collect, extraction
@@ -388,8 +388,13 @@ def test_collect_company_saves_new_offers_then_only_last_seen(site, tmp_path, mo
     first = collect.collect_company("Trap", f"{base}/offers.html", conn)
     assert len(first.new_keys) == 3 and first.pages_reached == 1
     assert [o.title for o in first.new_kept] == ["Cloud Engineer", "Data Analyst"]
+    # Nothing written by the collection: the same offers are still new
+    assert conn.execute("SELECT COUNT(*) FROM listed_offers").fetchone() == (0,)
+    assert len(collect.collect_company("Trap", f"{base}/offers.html", conn).new_keys) == 3
+    collect.save_collection(conn, first)
     second = collect.collect_company("Trap", f"{base}/offers.html", conn)
     assert second.new_keys == [] and second.new_kept == []
+    collect.save_collection(conn, second)
     stored = conn.execute("SELECT title, kept, first_seen <= last_seen FROM listed_offers ORDER BY title").fetchall()
     assert stored == [("Cloud Engineer", 1, 1), ("Data Analyst", 1, 1), ("Office Manager", 0, 1)]
     conn.close()
@@ -470,7 +475,7 @@ def test_collect_details_runs_the_three_steps(site, monkeypatch):
               offer("generic", "Cloud Architect", f"{base}/detail_other.html"),    # title not in the page
               offer("old", "Cloud Tester", f"{base}/detail_ok.html?id=9"),         # not new
               offer("hr", "HR Partner", f"{base}/detail_ok.html?id=8")]            # not kept
-    collection = CompanyCollection(company="Trap", url=f"{base}/offers.html", stop="finish", pages_reached=1,
+    collection = CompanyCollection(company="Trap", url=f"{base}/offers.html", stop="finish", seen="2026-11-25", pages_reached=1,
                                    offers=offers, new_keys=["ok", "generic", "hr"], new_kept=offers[:2],
                                    failed_chunks=0, model_calls={}, seconds=1)
 
@@ -560,3 +565,19 @@ def test_main_runs_the_whole_career_site_pipeline(site, tmp_path, monkeypatch, c
 
     entry.main(argv)                                                     # second run: nothing new
     assert "No new offers since last run." in capsys.readouterr().out
+
+
+def test_a_page_read_again_brings_no_line_never_seen(site):
+    base, _ = site
+    with session(base, "list1.html") as s:
+        first = s.observe()
+        assert first.never_seen_line_count > 0
+        assert s.click(find(first, "Next", "/list2.html", target=None).id, "pagination").clicked
+        second = s.observe()
+        assert second.never_seen_line_count > 0                       # page 2: new offers
+        assert s.click(find(second, "Trap Offer 2-A", "/offer2a.html").id, "pagination").clicked
+        s.observe()
+        assert s.back_to_list().done
+        again = s.observe()
+        assert again.new_line_count > 0                               # differs from the offer page just before
+        assert again.never_seen_line_count == 0                       # but every line was seen on page 2

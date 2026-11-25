@@ -83,7 +83,7 @@ def listed(key, title, link=""):
 
 
 def collection(company, offers):
-    return CompanyCollection(company=company, url=f"https://{company.lower()}.example/jobs", stop="finish",
+    return CompanyCollection(company=company, url=f"https://{company.lower()}.example/jobs", stop="finish", seen="2026-11-25",
                              pages_reached=1, offers=offers, new_keys=[o.key for o in offers], new_kept=offers,
                              failed_chunks=0, model_calls={}, seconds=1)
 
@@ -129,3 +129,34 @@ def test_a_company_that_fails_does_not_stop_the_others(monkeypatch):
 
 def test_career_sites_can_be_skipped():
     assert career_sites.fetch_career_sites({"offers": [], "sources": ["rss"]}) == {"offers": []}
+
+
+def test_listed_offers_are_written_only_with_the_offers(monkeypatch):
+    """A run that fails before or while storing marks nothing as seen: the offers stay new."""
+    from job_watch.list_agent.collect import save_collection
+    from job_watch.offers.listed import connect as connect_listed, known_keys
+    from job_watch.offers.nodes import save_results
+    connect_listed().close()                                   # tables created, as fetch_career_sites does
+    found = collection("Bank", [listed("a", "Security Analyst", "https://bank.example/a")])
+    offer = {**rss_offer("https://bank.example/a"), "key": "a", "source": "career_site"}
+
+    # The collection alone (crash before save_results) writes nothing
+    conn = connect_listed()
+    assert known_keys(conn, "Bank") == set()
+
+    # Storing fails: neither the offer nor the listed offer is written
+    def broken(*args, **kwargs):
+        raise RuntimeError("disk full")
+    # A context, never monkeypatch.undo(): undo() would also restore config.DB_PATH (real data/)
+    with monkeypatch.context() as patch:
+        patch.setattr("job_watch.list_agent.collect.save_listed_offers", broken)
+        with pytest.raises(RuntimeError):
+            save_results({"offers": [offer], "collections": [found]})
+    assert known_keys(conn, "Bank") == set()
+    assert conn.execute("SELECT COUNT(*) FROM offers").fetchone() == (0,)
+
+    # Storing succeeds: both are written
+    assert save_results({"offers": [offer], "collections": [found]})["new_offers"] == [("Bank", "a")]
+    assert known_keys(conn, "Bank") == {"a"}
+    conn.close()
+    assert save_collection is not None

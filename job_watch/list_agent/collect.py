@@ -1,7 +1,10 @@
 """Collect the offers of one company job list: agent navigation, extraction by the code,
 listed_offers table and filter, then the detail phase on the new offers kept.
 
-Offers found are saved even when some chunks failed (the report says so). Offers no longer
+Nothing is written here: save_collection() writes listed_offers, and the V1 node save_results
+calls it in the same transaction as the offers table, so that an offer is never marked as
+seen without being stored (a crash in between would otherwise lose it: not new next time).
+Offers found are kept even when some chunks failed (the report says so). Offers no longer
 listed are not marked here: the judge compares the total announced by the page later.
 """
 import sqlite3
@@ -13,7 +16,7 @@ from job_watch.list_agent import run as agent_run
 from job_watch.list_agent.detail import CheckedDetail, DetailPage, Skipped, extract_detail, open_details, plan_details
 from job_watch.list_agent.extraction import CheckedOffer, extract_observations
 from job_watch.llm import calls_since, model_calls
-from job_watch.offers.listed import now_iso, save_listed_offers
+from job_watch.offers.listed import known_keys, now_iso, save_listed_offers
 from job_watch.offers.listing_filter import keep
 
 
@@ -23,7 +26,8 @@ class CompanyCollection(BaseModel):
     stop: str                       # agent stop reason (not trusted: see the judge)
     pages_reached: int
     offers: list[CheckedOffer]      # every offer of this run, checked and deduplicated
-    new_keys: list[str]             # offers seen for the first time
+    new_keys: list[str]             # offers not yet in listed_offers
+    seen: str                       # time of the run, written as first_seen / last_seen
     new_kept: list[CheckedOffer]    # new offers kept by the filter: candidates for the detail phase
     failed_chunks: int
     model_calls: dict[str, int]
@@ -32,7 +36,7 @@ class CompanyCollection(BaseModel):
 
 def collect_company(company: str, url: str, conn: sqlite3.Connection,
                     log: Callable[[str], None] | None = None) -> CompanyCollection:
-    """Run the list agent, extract and check the offers, save them in listed_offers.
+    """Run the list agent, extract and check the offers, compare them with listed_offers (read only).
 
     log: optional, receives progress lines (one per agent turn, one per observation extracted).
     """
@@ -42,14 +46,21 @@ def collect_company(company: str, url: str, conn: sqlite3.Connection,
     else:
         run = agent_run.run_list_agent(url, company)
     extraction = extract_observations(company, run.observations, log=log)
-    new_keys = save_listed_offers(conn, company, extraction.offers, now_iso(), keep=keep)
+    known = known_keys(conn, company)
+    new_keys = [o.key for o in extraction.offers if o.key not in known]
     new = set(new_keys)
     return CompanyCollection(
         company=company, url=url, stop=run.stop, pages_reached=agent_run.pages_reached(run.trail),
-        offers=extraction.offers, new_keys=new_keys,
+        offers=extraction.offers, new_keys=new_keys, seen=now_iso(),
         new_kept=[o for o in extraction.offers if o.key in new and keep(o)],
         failed_chunks=extraction.failed_chunks, model_calls=calls_since(before), seconds=run.seconds,
     )
+
+
+def save_collection(conn: sqlite3.Connection, collection: CompanyCollection, commit: bool = True) -> list[str]:
+    """Write the offers of a collection in listed_offers (new ones inserted, known ones: last_seen)."""
+    return save_listed_offers(conn, collection.company, collection.offers, collection.seen, keep=keep,
+                              commit=commit)
 
 
 class DetailCollection(BaseModel):

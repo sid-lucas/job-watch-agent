@@ -6,6 +6,7 @@ link) is migrated in place, without losing any offer.
 """
 import json
 import sqlite3
+from collections.abc import Callable
 
 from job_watch import config
 
@@ -83,8 +84,13 @@ def _row(offer: dict) -> tuple:
     )
 
 
-def save_offers(offers: list[dict]) -> list[tuple[str, str]]:
-    """Insert offers not already in the database. Return the (company, key) of the new offers."""
+def save_offers(offers: list[dict],
+                before_commit: Callable[[sqlite3.Connection], None] | None = None) -> list[tuple[str, str]]:
+    """Insert offers not already in the database. Return the (company, key) of the new offers.
+
+    before_commit: optional, writes more rows on the same connection (listed_offers), committed
+    together with the offers; if anything fails, nothing is written.
+    """
     conn = connect()
     try:
         existing = {(row[0], row[1]) for row in conn.execute("SELECT company, key FROM offers")}
@@ -98,7 +104,12 @@ def save_offers(offers: list[dict]) -> list[tuple[str, str]]:
             f"INSERT OR IGNORE INTO offers ({', '.join(COLUMNS)}) VALUES ({', '.join('?' * len(COLUMNS))})",
             [_row(o) for o in new_offers],
         )
+        if before_commit:
+            before_commit(conn)
         conn.commit()
+    except BaseException:
+        conn.rollback()
+        raise
     finally:
         conn.close()
     return [(o["company"], o["key"]) for o in new_offers]

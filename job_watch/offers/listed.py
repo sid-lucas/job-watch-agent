@@ -42,18 +42,24 @@ def now_iso() -> str:
     return datetime.now(timezone.utc).isoformat(timespec="seconds")
 
 
+def known_keys(conn: sqlite3.Connection, company: str) -> set[str]:
+    """Keys of the offers of this company already in listed_offers (read only)."""
+    return {row[0] for row in conn.execute("SELECT key FROM listed_offers WHERE company = ?", (company,))}
+
+
 def save_listed_offers(conn: sqlite3.Connection, company: str, offers: list[CheckedOffer], seen: str,
-                       keep: Callable[[CheckedOffer], bool] | None = None) -> list[str]:
+                       keep: Callable[[CheckedOffer], bool] | None = None, commit: bool = True) -> list[str]:
     """Insert the new offers, update last_seen of the known ones. Return the keys of the new offers.
 
     keep: filter deciding the kept column of new offers (None: not filtered). A known offer
     keeps its stored values: only last_seen changes.
+    commit: False to leave the commit to the caller, so that listed_offers and offers are
+    written in one transaction (an offer is never known here without being in offers).
     """
     for offer in offers:
         if not offer.key:
             raise ValueError(f"offer without key (deduplicate() not called): {offer.title!r}")
-    known = {row[0] for row in conn.execute(
-        "SELECT key FROM listed_offers WHERE company = ?", (company,))}
+    known = known_keys(conn, company)
     new = [o for o in offers if o.key not in known]
     conn.executemany(
         """
@@ -67,5 +73,6 @@ def save_listed_offers(conn: sqlite3.Connection, company: str, offers: list[Chec
         "UPDATE listed_offers SET last_seen = ? WHERE company = ? AND key = ?",
         [(seen, company, o.key) for o in offers if o.key in known],
     )
-    conn.commit()
+    if commit:
+        conn.commit()
     return [o.key for o in new]
