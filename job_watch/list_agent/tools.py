@@ -38,6 +38,7 @@ class finish(BaseModel):
     model_config = ConfigDict(extra="forbid")
 
     reason: Literal["last_page_reached", "no_pagination", "cannot_continue"]
+    explanation: str = Field(max_length=300, description="One short sentence: why you stop now")
 
 
 SCHEMAS = (observe, click, finish)
@@ -72,6 +73,8 @@ def _label(refusal: Refusal) -> str:
         if refusal.detail == "download link":
             return "download"
         return "not a web link"
+    if refusal.reason == "not_pagination" and refusal.detail.startswith("consent word"):
+        return "cookie consent outside a detected banner"
     return REASON_LABELS[refusal.reason]
 
 
@@ -133,7 +136,8 @@ def make_tools(session: SessionThread) -> list[StructuredTool]:
             notes.append("The cookie refusal broke the list: accepting cookies is now allowed on this site.")
         return " ".join(["Clicked.", *notes, "Element numbers are now invalid: call observe."])
 
-    def run_finish(reason: str) -> str:
+    def run_finish(reason: str, explanation: str) -> str:
+        # The explanation is only logged (agent trail, via the tool call): never used to decide anything
         return f"Finished: {reason}."
 
     return [

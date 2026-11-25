@@ -35,6 +35,7 @@ def robots(monkeypatch):
     (Element(id=1, tag="button", role="tab", text="Interns", name="Interns"), False,
      "[blocked: not a plain link or button]"),
     (button("Decline", in_consent=True), False, "[ok: cookie_refusal]"),
+    (button("Decline"), False, "[blocked: cookie consent outside a detected banner]"),
     (button("Accept all", in_consent=True), False, "[blocked: acceptance only after a failed refusal]"),
     (button("Accept all", in_consent=True), True, "[ok: cookie_acceptance]"),
     (button("Preferences", in_consent=True), False, "[blocked: cookie preferences]"),

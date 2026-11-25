@@ -177,6 +177,9 @@ def check(control: Control, purpose: Purpose, page_host: str, acceptance_fallbac
             return Refusal(reason="not_pagination", detail="menu or collapsible control")
         if accepting:
             return Refusal(reason="acceptance_word", detail=f"word {accepting!r}")
+        # A consent button the banner detection missed (banner in the page flow) is not pagination
+        if word := _match(REFUSAL, labels):
+            return Refusal(reason="not_pagination", detail=f"consent word {word!r}")
         return None
 
     # Cookie consent

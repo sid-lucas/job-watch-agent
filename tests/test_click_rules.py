@@ -67,6 +67,9 @@ REAL_CASES = [
     ("lo_decline", button("Decline", in_consent=True), "cookie_refusal", LO, None),
     ("lo_accept_cookies_as_pagination", button("Accept Cookies", in_consent=True), "pagination", LO,
      "purpose_mismatch"),
+    # Banner in the page flow, not detected as consent (seen on 2026-11-25)
+    ("lo_decline_outside_detected_banner", button("Decline"), "pagination", LO, "not_pagination"),
+    ("lo_accept_outside_detected_banner", button("Accept Cookies"), "pagination", LO, "acceptance_word"),
     # Rolex
     ("rolex_page_2", link("2", ROLEX + "25/?q=&sortColumn=referencedate&sortDirection=desc", name="2"),
      "pagination", ROLEX, None),
@@ -131,6 +134,9 @@ SYNTHETIC_CASES = [
     ("language", button("Language"), "pagination", UBS, "not_pagination"),
     ("expanded_toggle", button("Show more options", aria_expanded=False), "pagination", UBS, "not_pagination"),
     ("ok_as_pagination", button("OK"), "pagination", UBS, "acceptance_word"),
+    ("continue_without_accepting_as_pagination", button("Continuer sans accepter"), "pagination", UBS,
+     "not_pagination"),
+    ("nur_notwendige_as_pagination", button("Nur notwendige"), "pagination", UBS, "not_pagination"),
     # Cookie consent
     ("alle_ablehnen", button("Alle ablehnen", in_consent=True), "cookie_refusal", UBS, None),
     ("nur_notwendige", button("Nur notwendige Cookies", in_consent=True), "cookie_refusal", UBS, None),
