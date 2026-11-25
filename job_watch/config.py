@@ -31,6 +31,9 @@ SOURCE_NAME = "swissdevjobs"
 # Web access
 USER_AGENT = "job-watch/0.1 (personal job search project)"
 MAX_PAGE_CHARS = 8000   # page text is truncated to this size
+# List agent budgets, enforced in code (the agent's own stop reason is not trusted)
+AGENT_MAX_LLM_CALLS = 50                  # agent turns per job list (UBS, 13 pages: about 30)
+AGENT_MAX_CLICKS_WITHOUT_NEW_CONTENT = 3  # consecutive pagination clicks that bring no line never seen
 MAX_DETAIL_PAGES = 20   # offer pages opened per career-site run (detail phase)
 DETAIL_PAUSE_SECONDS = 2     # pause between two offer pages, out of politeness to the site
 DETAIL_MAX_CHARS = 20000     # raw text kept per offer page (for the detail extraction and V2)

@@ -126,6 +126,9 @@ class Observation(BaseModel):
     new_text_truncated: bool
     new_text_full: str = ""     # the same lines, never cut: read by the offer extractor, never sent to the agent
     new_line_count: int         # 0: nothing new since the previous observation
+    # Distinct lines seen in no earlier observation of the session: 0 after going back to a page
+    # already read (new_line_count compares with the previous observation only)
+    never_seen_line_count: int = 0
     elements: list[Element]
     elements_truncated: bool
     iframes: list[FrameReport] = []
@@ -206,6 +209,7 @@ class BrowserSession:
         self.last_observation: Observation | None = None
         self.observations: list[Observation] = []              # every observation of the session, in order
         self._previous_lines: list[str] = []                   # full text lines of the last observation
+        self._seen_lines: set[str] = set()                     # every line of every observation so far
         self._elements: dict[int, tuple[Element, Frame]] = {}  # valid ids: last observation, no click since
         self._fallback_hosts: set[str] = set()                 # set only by _refusal_broke_list()
         self._list_url: str | None = None                      # page left by the last pagination click
@@ -255,6 +259,8 @@ class BrowserSession:
         new = new_lines(self._previous_lines, lines)
         new_text = "\n".join(new)
         self._previous_lines = lines
+        never_seen = len(set(lines) - self._seen_lines)
+        self._seen_lines.update(lines)
         observation = Observation(
             url=self.page.url,
             title=self.page.title(),
@@ -264,6 +270,7 @@ class BrowserSession:
             new_text_truncated=len(new_text) > MAX_TEXT_CHARS,
             new_text_full=new_text,
             new_line_count=len(new),
+            never_seen_line_count=never_seen,
             elements=[element for element, _ in elements],
             elements_truncated=truncated,
             iframes=iframes,

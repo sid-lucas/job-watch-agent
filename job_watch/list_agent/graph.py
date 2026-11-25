@@ -1,13 +1,16 @@
-"""The list agent loop: an agent node (LLM) and a tools node, until finish or no tool call.
+"""The list agent loop: an agent node (LLM), a tools node, and a budgets node in code.
 
-    START -> agent -(tools_condition)-> tools -(route_after_tools)-> agent ...
-    agent -> END when the answer has no tool call; tools -> END once finish has run
+    START -> agent -(route_after_agent)-> tools -> budgets -(route_after_budgets)-> agent ...
+    agent -> END when the answer has no tool call, or when the LLM call budget is spent;
+    budgets -> END once finish has run, or when too many clicks in a row brought nothing new.
+The agent's own stop reason is not trusted: the budgets stop it whatever it decides.
 """
 from langchain_core.messages import AIMessage, SystemMessage, ToolMessage
 from langchain_core.tools import BaseTool
 from langgraph.graph import END, START, StateGraph
 from langgraph.prebuilt import ToolNode, tools_condition
 
+from job_watch import config
 from job_watch.list_agent.state import ListAgentState
 from job_watch.list_agent.tools import SCHEMAS
 from job_watch.llm import call_with_retry, tool_llm
@@ -73,6 +76,9 @@ def agent(state: ListAgentState) -> dict:
     Only the last observation is sent in full; older ones are replaced by a summary, in the
     state too (same message id, so add_messages replaces them).
     """
+    if state["llm_calls"] >= config.AGENT_MAX_LLM_CALLS:
+        return {"stop_reason": "llm_budget",
+                "trail": [f"budget: {config.AGENT_MAX_LLM_CALLS} LLM calls spent, stop"]}
     summaries = summarise_old_observations(state["messages"])
     by_id = {m.id: m for m in summaries}
     view = [by_id.get(m.id, m) for m in state["messages"]]
@@ -91,17 +97,52 @@ def agent(state: ListAgentState) -> dict:
     return {"messages": [*summaries, answer], "llm_calls": calls, "trail": trail}
 
 
-def route_after_tools(state: ListAgentState) -> str:
-    """END once finish has run, otherwise back to the agent with the tool result."""
+def budgets(state: ListAgentState) -> dict:
+    """Node, in code: count the pagination clicks that bring no line never seen in this run.
+
+    A click is checked on the next observation: lines seen in no earlier observation reset the
+    count, none adds one. Going back and forth between pages already read brings none.
+    """
     last = state["messages"][-1]
-    return END if isinstance(last, ToolMessage) and last.name == "finish" else "agent"
+    if not isinstance(last, ToolMessage):
+        return {}
+    if last.name == "click":
+        asked = next((m for m in reversed(state["messages"]) if isinstance(m, AIMessage) and m.tool_calls), None)
+        purpose = asked.tool_calls[0]["args"].get("purpose") if asked else None
+        if purpose == "pagination" and str(last.content).startswith("Clicked."):
+            return {"click_to_check": True}
+        return {}
+    if last.name != "observe" or not state["click_to_check"]:
+        return {}
+    never_seen = (last.artifact or {}).get("never_seen", 0)
+    count = 0 if never_seen else state["clicks_without_new_content"] + 1
+    update = {"click_to_check": False, "clicks_without_new_content": count}
+    if count >= config.AGENT_MAX_CLICKS_WITHOUT_NEW_CONTENT:
+        update["stop_reason"] = "no_new_content"
+        update["trail"] = [f"budget: {count} pagination clicks in a row without new content, stop"]
+    return update
+
+
+def route_after_agent(state: ListAgentState) -> str:
+    """END when a stop reason is set (budget, error), otherwise as tools_condition."""
+    return END if state.get("stop_reason") else tools_condition(state)
+
+
+def route_after_budgets(state: ListAgentState) -> str:
+    """END once finish has run or a budget stopped the run, otherwise back to the agent."""
+    last = state["messages"][-1]
+    if state.get("stop_reason") or (isinstance(last, ToolMessage) and last.name == "finish"):
+        return END
+    return "agent"
 
 
 def build_graph(tools: list[BaseTool]):
     graph = StateGraph(ListAgentState)
     graph.add_node("agent", agent)
     graph.add_node("tools", ToolNode(tools))
+    graph.add_node("budgets", budgets)
     graph.add_edge(START, "agent")
-    graph.add_conditional_edges("agent", tools_condition, {"tools": "tools", END: END})
-    graph.add_conditional_edges("tools", route_after_tools, {"agent": "agent", END: END})
+    graph.add_conditional_edges("agent", route_after_agent, {"tools": "tools", END: END})
+    graph.add_edge("tools", "budgets")
+    graph.add_conditional_edges("budgets", route_after_budgets, {"agent": "agent", END: END})
     return graph.compile()

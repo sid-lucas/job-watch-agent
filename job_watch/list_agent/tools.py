@@ -145,7 +145,8 @@ def make_tools(session: SessionThread) -> list[StructuredTool]:
         obs = session.observe()
         # The artifact stays in the ToolMessage, never goes to the LLM: it is used to summarise
         # this observation once a newer one exists (graph.summarise_old_observations)
-        artifact = {"title": obs.title, "new_lines": obs.new_line_count, "elements": len(obs.elements),
+        artifact = {"title": obs.title, "new_lines": obs.new_line_count, "never_seen": obs.never_seen_line_count,
+                    "elements": len(obs.elements),
                     "current": [e.name for e in obs.elements if e.aria_current][:3],
                     "names": {e.id: e.name[:60] for e in obs.elements}}
         return format_observation(obs), artifact

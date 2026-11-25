@@ -9,13 +9,16 @@ from langchain_core.messages import AIMessage, HumanMessage
 from langgraph.errors import GraphRecursionError
 from pydantic import BaseModel, ConfigDict
 
+from job_watch import config
 from job_watch.list_agent.graph import build_graph
 from job_watch.list_agent.state import initial_state
 from job_watch.list_agent.tools import make_tools
 from job_watch.web.session import Observation, SessionError, TrailEvent
 from job_watch.web.session_thread import SessionThread
 
-RECURSION_LIMIT = 80    # temporary safety net of LangGraph (node runs), until the budgets piece
+# Safety net of LangGraph (node runs: agent, tools, budgets per turn), above the budgets in code,
+# which stop the run first with an explicit stop reason
+RECURSION_LIMIT = 3 * config.AGENT_MAX_LLM_CALLS + 10
 
 
 class AgentRun(BaseModel):
@@ -64,7 +67,8 @@ def progress_printer(log):
     """
     state = {"turn": 0, "pending": None, "since": time.monotonic()}
 
-    def on_update(node: str, update: dict) -> None:
+    def on_update(node: str, update: dict | None) -> None:
+        update = update or {}
         now = time.monotonic()
         for message in update.get("messages", []):
             if message.type == "ai" and node == "agent":
@@ -82,7 +86,7 @@ def progress_printer(log):
                     result = str(message.content)[:70]
                 log(f"turn {state['turn']}: {calls} -> {result} | {model} {seconds:.1f}s")
                 state["pending"] = None
-        if node == "agent" and update.get("stop_reason"):
+        if update.get("stop_reason"):
             log(f"turn {state['turn'] + 1}: stop {update['stop_reason']} ({(update.get('trail') or [''])[-1]})")
         state["since"] = now
 
@@ -101,6 +105,7 @@ def run_list_agent(url: str, company: str, recursion_limit: int = RECURSION_LIMI
             try:
                 for chunk in app.stream(state, {"recursion_limit": recursion_limit}, stream_mode="updates"):
                     for node, update in chunk.items():
+                        update = update or {}       # a node that changes nothing streams None
                         if on_update:
                             on_update(node, update)
                         for message in update.get("messages", []):
