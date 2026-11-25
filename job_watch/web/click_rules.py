@@ -34,6 +34,8 @@ class Control(BaseModel):
     download: bool = False
     aria_haspopup: bool = False
     aria_expanded: bool | None = None   # None when the attribute is absent
+    aria_current: bool = False          # current item of a set (page of a pagination, menu entry)
+    disabled: bool = False              # disabled attribute or aria-disabled="true"
     in_form: bool = False
     form_has_inputs: bool = False
     in_consent: bool = False            # inside a cookie consent banner or dialog

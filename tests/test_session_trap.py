@@ -276,3 +276,16 @@ def test_real_next_still_works_after_a_javascript_trap(site, trap):
         assert "Trap Offer 1-A" in obs.text
         assert s.click(find(obs, "Next", "/list2.html", target=None).id, "pagination").clicked
         assert "Trap Offer 2-A" in s.observe().new_text
+
+
+def test_current_page_and_disabled_marks(site):
+    from job_watch.list_agent.tools import format_observation
+    base, _ = site
+    with session(base, "list2.html") as s:
+        obs = s.observe()
+        assert find(obs, "2").aria_current and not find(obs, "3").aria_current
+        assert "'2' [current] [ok: pagination]" in format_observation(obs)
+        assert s.click(find(obs, "Next", "/list3.html").id, "pagination").clicked
+        obs = s.observe()
+        assert find(obs, "Next").disabled
+        assert "'Next' [disabled] [ok: pagination]" in format_observation(obs)

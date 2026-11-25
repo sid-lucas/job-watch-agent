@@ -15,8 +15,9 @@ from job_watch.llm import call_with_retry, tool_llm
 SYSTEM = """You read a company job list page by page, so that every offer can be collected.
 Tools: observe the page, click a numbered element, finish.
 - Start with observe. After every click, observe again: element numbers change.
-- Click only pagination controls (next page, page number, load more) or, if a cookie banner
-  blocks the page, its refusal button. Never apply, sign in, register, search, sort or filter.
+- Click only pagination controls (next page, page number, load more) or cookie banner buttons.
+  If a cookie banner is shown, click its refusal button first, before any other action.
+  Never apply, sign in, register, search, sort or filter.
 - Each element is marked by the code: [ok: ...] lists the purposes it would accept,
   [blocked: ...] says why it would be refused. Never choose a blocked element.
 - A refusal only concerns that control. Before concluding, try the other pagination

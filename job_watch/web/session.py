@@ -48,6 +48,7 @@ const facts = e => {
   const base = document.querySelector('base[target]');
   const popup = e.getAttribute('aria-haspopup');
   const expanded = e.getAttribute('aria-expanded');
+  const current = e.getAttribute('aria-current');
   let inConsent = false;
   for (let a = e.parentElement; a && a !== document.body && a !== document.documentElement; a = a.parentElement) {
     const position = getComputedStyle(a).position;
@@ -68,6 +69,8 @@ const facts = e => {
     download: e.hasAttribute('download'),
     aria_haspopup: popup !== null && popup !== 'false',
     aria_expanded: expanded === null ? null : expanded === 'true',
+    aria_current: current !== null && current !== 'false',
+    disabled: e.disabled === true || e.getAttribute('aria-disabled') === 'true',
     in_form: !!form,
     form_has_inputs: !!form && !!form.querySelector(
       'input:not([type="hidden"]):not([type="submit"]):not([type="button"]), textarea, select'),

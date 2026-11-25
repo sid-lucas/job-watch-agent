@@ -110,7 +110,8 @@ def format_observation(obs: Observation) -> str:
     host = site_host(obs.url)
     elements = []
     for e in obs.elements:
-        marks = " [cookie banner]" if e.in_consent else ""
+        marks = "".join(mark for mark, on in ((" [cookie banner]", e.in_consent), (" [current]", e.aria_current),
+                                              (" [disabled]", e.disabled)) if on)
         verdict = element_verdict(e, host, obs.acceptance_fallback)
         elements.append(f"[{e.id}] {e.role} {_untrusted(e.name)!r}{marks} {verdict}")
     more = "\n(element list truncated)" if obs.elements_truncated else ""
