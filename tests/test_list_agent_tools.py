@@ -81,3 +81,13 @@ def test_unchanged_elements_above_the_first_change_are_not_repeated():
     assert changed_from(first, PAGE + "?page=2", second.elements) == 0      # other URL: show all
     assert changed_from(second, PAGE, second.elements) == 0                 # nothing changed: show all
     assert changed_from(None, PAGE, second.elements) == 0
+
+
+def test_the_agent_never_receives_text_beyond_the_cut():
+    full = "Offer A\nOffer B\nBEYOND THE CUT"
+    obs = Observation(url=PAGE, title="Jobs", text=full[:15], truncated=True, new_text=full[:15],
+                      new_text_truncated=True, new_text_full=full, new_line_count=3, elements_truncated=False,
+                      elements=[link("Next", PAGE + "?page=2")])
+    text = format_observation(obs)
+    assert "Offer A" in text and "(new text truncated)" in text
+    assert "BEYOND" not in text
