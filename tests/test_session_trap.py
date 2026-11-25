@@ -13,6 +13,7 @@ from urllib.parse import urlsplit
 import pytest
 
 from job_watch.web.new_content import page_lines
+from job_watch.web import session as session_module
 from job_watch.web.session import BrowserSession, Observation
 
 pytestmark = pytest.mark.browser
@@ -243,6 +244,16 @@ def test_load_more_reports_only_the_new_lines(site):
             obs = s.observe()
             assert obs.new_text.splitlines() == lines
             assert obs.new_line_count == len(lines)
+
+
+def test_full_new_text_is_kept_when_the_agent_text_is_cut(site, monkeypatch):
+    base, _ = site
+    monkeypatch.setattr(session_module, "MAX_TEXT_CHARS", 40)
+    with session(base, "load_more.html") as s:
+        obs = s.observe()
+        assert obs.new_text_truncated and len(obs.new_text) == 40
+        assert obs.new_text_full.startswith(obs.new_text) and len(obs.new_text_full) > 40
+        assert "More Offer 6" in obs.new_text_full and "More Offer 6" not in obs.new_text
 
 
 def test_pagination_new_text_is_the_next_page(site):

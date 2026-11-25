@@ -124,6 +124,7 @@ class Observation(BaseModel):
     truncated: bool
     new_text: str               # lines new since the previous observation (all lines the first time)
     new_text_truncated: bool
+    new_text_full: str = ""     # the same lines, never cut: read by the offer extractor, never sent to the agent
     new_line_count: int         # 0: nothing new since the previous observation
     elements: list[Element]
     elements_truncated: bool
@@ -261,6 +262,7 @@ class BrowserSession:
             truncated=len(text) > MAX_TEXT_CHARS,
             new_text=new_text[:MAX_TEXT_CHARS],
             new_text_truncated=len(new_text) > MAX_TEXT_CHARS,
+            new_text_full=new_text,
             new_line_count=len(new),
             elements=[element for element, _ in elements],
             elements_truncated=truncated,

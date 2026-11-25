@@ -107,11 +107,14 @@ Tests:
 
 Evaluation (`evals/check_list_agent.py`, cases in `evals/cases/list_agent.json`): 12 job lists checked by hand (6 banks and security, 6 watchmakers), with the total announced by the page and sample titles, some beyond page 1. Baseline with the previous extractor (page 1 only): 100 % on single-page lists, 8 to 38 % on paginated lists. The agent will be measured on the same cases.
 
-Next: the LangGraph agent (state, LLM with tools, loop, budgets), then offer extraction on each page, then the comparison with the baseline.
+Next: offer extraction on each observation (outside the agent conversation), then the comparison with the baseline.
 
 Known limitations:
-- A cookie banner that is part of the normal page flow (not a floating dialog) is not recognised, so its buttons are refused (Lombard Odier); the list stays readable.
-- Pages with many controls: the element list is cut at 1000 (raised from 300, which hid UBS's "Next" after two pages). On lists that grow at each click, the cap is still reached (UBS around page 11), and the new text of one click can exceed the text limit.
+- The LLM can skip or repeat a page, and its stop reason is not reliable: the judge checks the total announced by the page.
+- A cookie banner that is part of the page flow (not a floating dialog) is not detected, so its buttons are refused.
+- At most 3000 elements are collected per observation; the agent sees only those from the first new or changed one.
+- On a growing list whose pagination sits above the offers and never changes, that pagination is hidden from the agent.
+- The new text sent to the agent is cut at 30000 characters.
 - The forbidden-action words cover four languages; other languages rely on the other guardrails (forms, navigation interception).
 
 ## LLM usage
