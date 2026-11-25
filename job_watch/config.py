@@ -31,6 +31,7 @@ SOURCE_NAME = "swissdevjobs"
 # Web access
 USER_AGENT = "job-watch/0.1 (personal job search project)"
 MAX_PAGE_CHARS = 8000   # page text is truncated to this size
+MAX_DETAIL_PAGES = 20   # offer pages opened per career-site run (detail phase)
 ROBOTS_TIMEOUT = 10     # seconds
 
 # Domains never fetched, whatever their robots.txt says (terms of use forbid automated access)
