@@ -12,6 +12,7 @@ from urllib.parse import urlsplit
 
 import pytest
 
+from job_watch.web.new_content import page_lines
 from job_watch.web.session import BrowserSession, Observation
 
 pytestmark = pytest.mark.browser
@@ -216,3 +217,26 @@ def test_click_budget(site):
         assert s.click(find(s.observe(), "Next", "/list2.html", target=None).id, "pagination").clicked
         result = s.click(find(s.observe(), "Next", "/list3.html").id, "pagination")
         assert (result.clicked, result.reason) == (False, "budget")
+
+
+def test_load_more_reports_only_the_new_lines(site):
+    base, _ = site
+    with session(base, "load_more.html") as s:
+        obs = s.observe()
+        assert obs.new_text == "\n".join(page_lines(obs.text))        # first observation: all new
+        expected = [["Showing 8 of 9", "More Offer 7", "Geneva", "More Offer 8", "Geneva"],
+                    ["Showing 9 of 9", "More Offer 9", "Geneva"],
+                    []]                                                 # nothing left to load
+        for lines in expected:
+            assert s.click(find(obs, "Show more").id, "pagination").clicked
+            obs = s.observe()
+            assert obs.new_text.splitlines() == lines
+            assert obs.new_line_count == len(lines)
+
+
+def test_pagination_new_text_is_the_next_page(site):
+    base, _ = site
+    with session(base, "list1.html") as s:
+        assert s.click(find(s.observe(), "Next", "/list2.html", target=None).id, "pagination").clicked
+        obs = s.observe()
+        assert "Trap Offer 2-A" in obs.new_text and "Trap Offer 1-A" not in obs.new_text

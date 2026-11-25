@@ -13,7 +13,7 @@ PURPOSES = {"p": "pagination", "r": "cookie_refusal", "a": "cookie_acceptance"}
 NEW_LINES_SHOWN = 10
 
 
-def show(obs: Observation, previous: Observation | None) -> None:
+def show(obs: Observation) -> None:
     print(f"\nurl: {obs.url}\ntitle: {obs.title}")
     print(f"text: {len(obs.text)} chars{' (truncated)' if obs.truncated else ''}, "
           f"elements: {len(obs.elements)}{' (truncated)' if obs.elements_truncated else ''}")
@@ -24,12 +24,10 @@ def show(obs: Observation, previous: Observation | None) -> None:
                                  ("iframe", e.frame != "main")) if on]
         marks += [f"type={e.input_type}"] if e.input_type else []
         print(f"  [{e.id:3}] {e.role:8} {e.name[:70]!r} {' '.join(f'[{m}]' for m in marks)}")
-    if previous:
-        seen = set(previous.text.splitlines())
-        new = [line for line in obs.text.splitlines() if line.strip() and line not in seen]
-        print(f"new text lines since the previous observation: {len(new)}")
-        for line in new[:NEW_LINES_SHOWN]:
-            print(f"  + {line[:100]}")
+    print(f"new lines since the previous observation: {obs.new_line_count}"
+          f"{' (new text truncated)' if obs.new_text_truncated else ''}")
+    for line in obs.new_text.splitlines()[:NEW_LINES_SHOWN]:
+        print(f"  + {line[:100]}")
 
 
 def main():
@@ -37,19 +35,16 @@ def main():
         sys.exit(__doc__)
     try:
         with BrowserSession(sys.argv[1]) as session:
-            obs = session.observe()
-            show(obs, None)
+            show(session.observe())
             while (command := input("\n> ").strip()) != "q":
                 parts = command.split()
                 if parts == ["o"]:
-                    previous, obs = obs, session.observe()
-                    show(obs, previous)
+                    show(session.observe())
                 elif len(parts) == 2 and parts[0].isdigit() and parts[1] in PURPOSES:
                     result = session.click(int(parts[0]), PURPOSES[parts[1]])
                     print(result.model_dump_json(indent=2))
                     if result.clicked:
-                        previous, obs = obs, session.observe()
-                        show(obs, previous)
+                        show(session.observe())
                 else:
                     print(__doc__)
             trail = session.trail

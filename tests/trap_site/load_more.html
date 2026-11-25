@@ -1,0 +1,21 @@
+<!doctype html><html><head><meta charset="utf-8"><title>Trap jobs, load more</title></head><body>
+<h1>Open positions</h1>
+<p id="counter">Showing 6 of 9</p>
+<ul id="offers"><li>More Offer 1<br>Geneva</li><li>More Offer 2<br>Geneva</li><li>More Offer 3<br>Geneva</li><li>More Offer 4<br>Geneva</li><li>More Offer 5<br>Geneva</li><li>More Offer 6<br>Geneva</li></ul>
+<button id="more" type="button">Show more</button>
+<p>Privacy · Terms of use · Contact</p>
+<script>
+  // Appends offers 7-8, then 9, then nothing: the last click brings no new content
+  const batches = [[7, 8], [9]];
+  let shown = 6;
+  document.getElementById('more').onclick = () => {
+    for (const n of batches.shift() || []) {
+      const li = document.createElement('li');
+      li.innerHTML = `More Offer ${n}<br>Geneva`;
+      document.getElementById('offers').append(li);
+      shown += 1;
+    }
+    document.getElementById('counter').textContent = `Showing ${shown} of 9`;
+  };
+</script>
+</body></html>

@@ -21,8 +21,9 @@ from job_watch import config
 from job_watch.web import access
 from job_watch.web.browser import LOAD_WAIT_MS, PAGE_TIMEOUT_MS, RENDER_WAIT_MS
 from job_watch.web.click_rules import Control, Purpose, Reason, check, site_host
+from job_watch.web.new_content import new_lines, page_lines
 
-MAX_TEXT_CHARS = 30000      # page text kept per observation
+MAX_TEXT_CHARS = 30000      # page text, and new text, kept per observation
 MAX_ELEMENTS = 300          # numbered controls kept per observation, in page order, all frames together
 MAX_CLICKS = 30             # clicks per session, refused ones not counted
 CLICK_TIMEOUT_MS = 5000     # a control still covered or hidden after this delay is not clicked
@@ -118,6 +119,9 @@ class Observation(BaseModel):
     title: str
     text: str                   # main frame text only
     truncated: bool
+    new_text: str               # lines new since the previous observation (all lines the first time)
+    new_text_truncated: bool
+    new_line_count: int         # 0: nothing new since the previous observation
     elements: list[Element]
     elements_truncated: bool
     iframes: list[FrameReport] = []
@@ -163,6 +167,7 @@ class BrowserSession:
         self.clicks = 0
         self.trail: list[TrailEvent] = []
         self.last_observation: Observation | None = None
+        self._previous_lines: list[str] = []                   # full text lines of the last observation
         self._elements: dict[int, tuple[Element, Frame]] = {}  # valid ids: last observation, no click since
         self._fallback_hosts: set[str] = set()                 # set only by _refusal_broke_list()
         self._started = time.monotonic()
@@ -207,18 +212,26 @@ class BrowserSession:
         """
         elements, truncated, iframes = self._collect()
         text = self.page.inner_text("body")
+        lines = page_lines(text)            # full text: new lines often sit beyond the MAX_TEXT_CHARS cut
+        new = new_lines(self._previous_lines, lines)
+        new_text = "\n".join(new)
+        self._previous_lines = lines
         observation = Observation(
             url=self.page.url,
             title=self.page.title(),
             text=text[:MAX_TEXT_CHARS],
             truncated=len(text) > MAX_TEXT_CHARS,
+            new_text=new_text[:MAX_TEXT_CHARS],
+            new_text_truncated=len(new_text) > MAX_TEXT_CHARS,
+            new_line_count=len(new),
             elements=[element for element, _ in elements],
             elements_truncated=truncated,
             iframes=iframes,
         )
         self._elements = {element.id: (element, frame) for element, frame in elements}
         self.last_observation = observation
-        self._log("observe", f"{len(observation.elements)} elements, {len(text)} chars, {len(iframes)} iframes")
+        self._log("observe", f"{len(observation.elements)} elements, {len(text)} chars, {len(new)} new lines, "
+                                f"{len(iframes)} iframes")
         return observation
 
     def _collect(self) -> tuple[list[tuple[Element, Frame]], bool, list[FrameReport]]:
