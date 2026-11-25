@@ -1,0 +1,7 @@
+<!doctype html><html><head><meta charset="utf-8"><title>Trap jobs, iframes</title></head><body>
+<h1>Open positions</h1>
+<ul><li>Framed Offer A</li></ul>
+<iframe id="same" src="/consent_frame.html" width="400" height="120"></iframe>
+<iframe id="other" width="400" height="120"></iframe>
+<script>document.getElementById('other').src = 'http://localhost:' + location.port + '/third_party.html';</script>
+</body></html>

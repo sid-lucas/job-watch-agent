@@ -1,0 +1,13 @@
+<!doctype html><html><head><meta charset="utf-8"><title>Trap jobs, refusal breaks the list</title></head><body>
+<h1>Open positions</h1>
+<ul><li>Broken Offer A</li></ul>
+<div id="cookies" style="position:fixed;top:0;right:0;width:360px;background:#eee;padding:8px">
+  We use cookies.
+  <button type="button" onclick="accept()">Accept all</button>
+  <button type="button" onclick="location.href = '/home.html'">Decline all</button>
+</div>
+<script>
+  function accept() { document.cookie = 'consent=yes; path=/'; document.getElementById('cookies').remove(); }
+  if (document.cookie.includes('consent=yes')) document.getElementById('cookies').remove();
+</script>
+</body></html>
