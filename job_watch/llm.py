@@ -1,5 +1,6 @@
 """Shared LLM access for public web data: cloud models first, a local model as last resort.
 Personal documents are never sent through this module."""
+import logging
 import os
 import threading
 import time
@@ -15,7 +16,22 @@ from job_watch import config
 
 load_dotenv()
 
-GEMINI_TIMEOUT = 30     # seconds; an overloaded cloud model is replaced by the next one in the chain
+GEMINI_TIMEOUT = 30     # seconds per request; an overloaded cloud model is replaced by the next one in the chain
+OLLAMA_TIMEOUT = 180    # seconds per request; the local model is the last one, and slow on a long page
+
+
+class _UnsupportedSchemaKey(logging.Filter):
+    """Drop the 'Key ... is not supported in schema, ignoring' warning of langchain_google_genai.
+
+    Gemini ignores keys such as additionalProperties (extra="forbid"): the code validates every
+    answer again, so the warning carries no information. Other warnings of that logger stay.
+    """
+
+    def filter(self, record: logging.LogRecord) -> bool:
+        return "is not supported in schema" not in record.getMessage()
+
+
+logging.getLogger("langchain_google_genai._function_utils").addFilter(_UnsupportedSchemaKey())
 
 
 _calls: Counter[str] = Counter()     # "provider:model" -> answers; "provider:model failed" -> errors
@@ -58,7 +74,7 @@ def _client(provider: str, model: str):
     if provider == "ollama":
         # Reasoning disabled: not supported together with structured output
         return ChatOllama(model=model, num_ctx=config.OLLAMA_NUM_CTX, temperature=0, reasoning=False,
-                          callbacks=counter)
+                          client_kwargs={"timeout": OLLAMA_TIMEOUT}, callbacks=counter)
     raise ValueError(f"Unknown LLM provider: {provider}")
 
 
@@ -79,6 +95,7 @@ def structured_llm(schema):
 
 
 
+@cache
 def tool_llm(tools: tuple):
     """Models of the chain, each bound to the given tools, tried in order.
 

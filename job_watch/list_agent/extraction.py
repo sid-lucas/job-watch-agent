@@ -7,6 +7,7 @@ extractor to list every offer.
 import hashlib
 import re
 import unicodedata
+from collections.abc import Callable
 
 from pydantic import BaseModel, Field
 
@@ -243,14 +244,19 @@ class Extraction(BaseModel):
     dropped: int                # offers answered by the LLM whose title is not in the chunk
 
 
-def extract_observations(company: str, observations: list[Observation]) -> Extraction:
-    """Extract, check and deduplicate the offers of every observation that brought new text."""
+def extract_observations(company: str, observations: list[Observation],
+                         log: Callable[[str], None] | None = None) -> Extraction:
+    """Extract, check and deduplicate the offers of every observation that brought new text.
+
+    log: optional, receives one progress line per observation.
+    """
     found: list[CheckedOffer] = []
     sent = failed = dropped = 0
-    for obs in observations:
-        if not obs.new_line_count:
-            continue
-        for chunk in chunks(obs.new_text_full):
+    with_text = [obs for obs in observations if obs.new_line_count]
+    for number, obs in enumerate(with_text, 1):
+        before = (len(found), failed)
+        parts = chunks(obs.new_text_full)
+        for chunk in parts:
             sent += 1
             answer = extract_chunk(company, chunk, obs.elements)
             if answer is None:
@@ -259,4 +265,7 @@ def extract_observations(company: str, observations: list[Observation]) -> Extra
             checked = check_offers(chunk, answer, obs.elements, obs.url)
             dropped += len(answer.offers) - len(checked)
             found += checked
+        if log:
+            log(f"extract {number}/{len(with_text)}: {len(parts)} chunks, {len(found) - before[0]} offers"
+                + (f", {failed - before[1]} chunks failed" if failed > before[1] else ""))
     return Extraction(offers=deduplicate(found), chunks=sent, failed_chunks=failed, dropped=dropped)

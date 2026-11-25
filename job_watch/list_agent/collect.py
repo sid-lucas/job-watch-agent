@@ -5,6 +5,7 @@ Offers found are saved even when some chunks failed (the report says so). Offers
 listed are not marked here: the judge compares the total announced by the page later.
 """
 import sqlite3
+from collections.abc import Callable
 
 from pydantic import BaseModel
 
@@ -29,11 +30,18 @@ class CompanyCollection(BaseModel):
     seconds: float
 
 
-def collect_company(company: str, url: str, conn: sqlite3.Connection) -> CompanyCollection:
-    """Run the list agent, extract and check the offers, save them in listed_offers."""
+def collect_company(company: str, url: str, conn: sqlite3.Connection,
+                    log: Callable[[str], None] | None = None) -> CompanyCollection:
+    """Run the list agent, extract and check the offers, save them in listed_offers.
+
+    log: optional, receives progress lines (one per agent turn, one per observation extracted).
+    """
     before = model_calls()
-    run = agent_run.run_list_agent(url, company)
-    extraction = extract_observations(company, run.observations)
+    if log:
+        run = agent_run.run_list_agent(url, company, on_update=agent_run.progress_printer(log))
+    else:
+        run = agent_run.run_list_agent(url, company)
+    extraction = extract_observations(company, run.observations, log=log)
     new_keys = save_listed_offers(conn, company, extraction.offers, now_iso(), keep=keep)
     new = set(new_keys)
     return CompanyCollection(
@@ -54,13 +62,19 @@ class DetailCollection(BaseModel):
     model_calls: dict[str, int]
 
 
-def collect_details(collection: CompanyCollection, **session_options) -> DetailCollection:
-    """Detail phase on the new offers kept by the filter, after collect_company()."""
+def collect_details(collection: CompanyCollection, log: Callable[[str], None] | None = None,
+                    **session_options) -> DetailCollection:
+    """Detail phase on the new offers kept by the filter, after collect_company().
+
+    log: optional, receives one progress line per page opened, and per failed extraction.
+    """
     before = model_calls()
     plan = plan_details(collection.offers, collection.new_keys, [o.key for o in collection.offers if keep(o)],
                         collection.url)
     offers = {o.key: o for o in plan.to_open}
-    pages = open_details(plan.to_open, collection.url, **session_options)
+    if log:
+        log(f"details: {len(plan.to_open)} pages to open, {len(plan.skipped)} offers not opened")
+    pages = open_details(plan.to_open, collection.url, log=log, **session_options)
     details, texts, failed = [], {}, []
     for page in pages:
         if page.failure:
@@ -68,6 +82,8 @@ def collect_details(collection: CompanyCollection, **session_options) -> DetailC
         detail = extract_detail(collection.company, offers[page.key], page)
         if detail is None:
             failed.append(page.key)
+            if log:
+                log(f"detail extraction failed (every model): {page.key}")
             continue
         details.append(detail)
         texts[page.key] = page.text

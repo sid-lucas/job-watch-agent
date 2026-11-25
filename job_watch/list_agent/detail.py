@@ -105,13 +105,21 @@ def open_detail(offer: CheckedOffer, list_url: str, **session_options) -> Detail
 
 
 def open_details(offers: list[CheckedOffer], list_url: str, pause: float = config.DETAIL_PAUSE_SECONDS,
-                 sleep: Callable[[float], None] | None = None, **session_options) -> list[DetailPage]:
-    """Open the offer pages one after the other, with a pause between two pages (time.sleep by default)."""
+                 sleep: Callable[[float], None] | None = None, log: Callable[[str], None] | None = None,
+                 **session_options) -> list[DetailPage]:
+    """Open the offer pages one after the other, with a pause between two pages (time.sleep by default).
+
+    log: optional, receives one progress line per page.
+    """
     pages = []
     for number, offer in enumerate(offers):
         if number:
             (sleep or time.sleep)(pause)
-        pages.append(open_detail(offer, list_url, **session_options))
+        page = open_detail(offer, list_url, **session_options)
+        pages.append(page)
+        if log:
+            result = "accepted" if page.failure is None else f"refused: {page.failure} ({page.detail[:60]})"
+            log(f"detail {number + 1}/{len(offers)}: {offer.title[:50]!r} {result}")
     return pages
 
 

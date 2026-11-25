@@ -11,6 +11,10 @@ from job_watch.list_agent.collect import collect_company, collect_details
 from job_watch.offers.listed import connect
 
 
+def log(line: str) -> None:
+    print(f"  {line}", flush=True)
+
+
 def main():
     parser = argparse.ArgumentParser()
     parser.add_argument("company")
@@ -21,7 +25,7 @@ def main():
 
     conn = connect(args.db)
     try:
-        result = collect_company(args.company, args.url, conn)
+        result = collect_company(args.company, args.url, conn, log=log)
     finally:
         conn.close()
     print(f"{result.company}: {len(result.offers)} offers, {len(result.new_keys)} new, "
@@ -34,7 +38,7 @@ def main():
     if not args.details:
         return
 
-    details = collect_details(result)
+    details = collect_details(result, log=log)
     print(f"\ndetails: {len(details.details)} extracted, {len(details.refused_pages)} pages refused, "
           f"{len(details.failed_extractions)} extractions failed, {len(details.skipped)} offers not opened")
     print("models: " + (", ".join(f"{n} {c}" for n, c in details.model_calls.items()) or "no LLM call"))

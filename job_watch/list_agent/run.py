@@ -51,6 +51,44 @@ def pages_reached(trail: list[TrailEvent]) -> int:
     return pages
 
 
+def model_name(answer: AIMessage) -> str:
+    """Model that produced an answer, as reported by the provider."""
+    meta = answer.response_metadata or {}
+    return str(meta.get("model_name") or meta.get("model") or "?")
+
+
+def progress_printer(log):
+    """on_update callback printing one line per agent turn: action, result, model, call duration.
+
+    Offers are not counted here: they are extracted after the navigation (extraction.py).
+    """
+    state = {"turn": 0, "pending": None, "since": time.monotonic()}
+
+    def on_update(node: str, update: dict) -> None:
+        now = time.monotonic()
+        for message in update.get("messages", []):
+            if message.type == "ai" and node == "agent":
+                state["turn"] += 1
+                calls = ", ".join(f"{c['name']}({', '.join(f'{v}' for v in c['args'].values())})"
+                                  for c in message.tool_calls) or "no tool call"
+                state["pending"] = (calls, model_name(message), now - state["since"])
+            elif message.type == "tool" and state["pending"]:
+                calls, model, seconds = state["pending"]
+                artifact = message.artifact if isinstance(message.artifact, dict) else None
+                if artifact:
+                    result = (f"{artifact['title'][:40]!r}, {artifact['new_lines']} new lines, "
+                              f"{artifact['elements']} elements")
+                else:
+                    result = str(message.content)[:70]
+                log(f"turn {state['turn']}: {calls} -> {result} | {model} {seconds:.1f}s")
+                state["pending"] = None
+        if node == "agent" and update.get("stop_reason"):
+            log(f"turn {state['turn'] + 1}: stop {update['stop_reason']} ({(update.get('trail') or [''])[-1]})")
+        state["since"] = now
+
+    return on_update
+
+
 def run_list_agent(url: str, company: str, recursion_limit: int = RECURSION_LIMIT, on_update=None) -> AgentRun:
     """Open the list, run the graph until it stops, return the run. on_update(node, update) is optional."""
     started = time.monotonic()
