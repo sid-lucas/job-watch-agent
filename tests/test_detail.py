@@ -35,3 +35,42 @@ def test_the_budget_keeps_the_first_offers_in_page_order():
     plan = plan_details(offers, new_keys=keys, kept_keys=keys, list_url=LIST, budget=3)
     assert [o.key for o in plan.to_open] == ["0", "1", "2"]
     assert reasons(plan) == {"3": "budget", "4": "budget"}
+
+
+def answer(**fields):
+    from job_watch.list_agent.detail import OfferDetail
+    base = dict(summary="Role.", requirements=[], contract="unknown", workload="", ad_language="en",
+                required_languages=[], posted="")
+    return OfferDetail(**{**base, **fields})
+
+
+def test_check_detail_keeps_only_what_the_page_supports():
+    from datetime import date
+    from job_watch.list_agent.detail import check_detail
+    page = "Cloud Engineer\nZurich, 80-100 %\n5 years of experience with Kubernetes\nFluent in German"
+    checked = check_detail("k", page, answer(
+        requirements=["5 years of experience with kubernetes", "PhD in physics"],   # second one invented
+        workload="80-100 %", posted="2026-11-20", required_languages=["de", "de", "en"]), date(2026, 11, 25))
+    assert checked.requirements == ["5 years of experience with Kubernetes"]       # exact page text
+    assert checked.dropped_requirements == 1
+    assert checked.workload == "80-100 %" and checked.posted == "2026-11-20"
+    assert checked.required_languages == ["de", "en"]
+
+
+def test_invented_workload_and_implausible_dates_are_emptied():
+    from datetime import date
+    from job_watch.list_agent.detail import check_detail
+    today = date(2026, 11, 25)
+    for posted in ("2027-01-01", "1999-12-31", "20 November 2026", ""):
+        assert check_detail("k", "Text", answer(posted=posted, workload="100 %"), today).posted == ""
+    assert check_detail("k", "Text", answer(workload="100 %"), today).workload == ""
+
+
+def test_closed_lists_and_no_score_field():
+    import pytest
+    from pydantic import ValidationError
+    from job_watch.list_agent.detail import OfferDetail
+    with pytest.raises(ValidationError):
+        answer(contract="CEO with bonus")
+    parsed = OfferDetail.model_validate({**answer().model_dump(), "score": 100})
+    assert "score" not in parsed.model_dump()
