@@ -86,7 +86,7 @@ Found with a second company list (watchmakers, 41 companies: 14 ok, 1 blocked, 2
 - Tracking parameters (`?srsltid=...`) are kept in the saved URLs.
 - Results depend on the sector: rules and test set were tuned on banks and security companies.
 
-## Offer list agent (V1.2, in progress)
+## Career sites: list agent, extraction, detail (V1.2, in progress)
 
 Goal: read every offer of a job list, whatever its pagination (numbered pages, "Next", "load more"), on any site.
 
@@ -108,7 +108,14 @@ Tests:
 
 Evaluation (`evals/check_list_agent.py`, cases in `evals/cases/list_agent.json`): 12 job lists checked by hand (6 banks and security, 6 watchmakers), with the total announced by the page and sample titles, some beyond page 1. Baseline with the previous extractor (page 1 only): 100 % on single-page lists, 8 to 38 % on paginated lists. The agent will be measured on the same cases.
 
-Next: offer extraction on each observation (outside the agent conversation), then the comparison with the baseline.
+Pipeline (`main.py`, node `fetch_career_sites` in the V1 graph, after `fetch_rss`), per registry company with status `ok`:
+1. Navigation: the list agent walks the pages (above).
+2. Extraction, triggered by the code on every observation with new text, outside the agent conversation: full new text cut into overlapping chunks, one structured LLM call per chunk. Checks in code: title found in the chunk (exact page text kept), location and reference found or emptied, link only if it is the href of an element of the observation on the list's registrable domain; "verified" when that element's text or name contains the title. Offer key: reference with a digit, else verified link, else hash of title and location; copies merged, two different titles never.
+3. `listed_offers` (primary key company, key): every offer seen, first_seen / last_seen, kept by the filter or not.
+4. Filter in code: IT title (keywords of user_config) and location not clearly abroad (funnel: a lost offer costs more than an extra one).
+5. Detail phase on the new offers kept: own link on the list's domain, not shared by other offers, at most `MAX_DETAIL_PAGES`, a pause between pages; one observation per page, no click; the page is accepted only if it contains the title. Structured extraction checked in code: requirements and workload quoted from the page, closed lists for contract and languages (contract emptied when no word of it is in the page), plausible date. Raw page text kept for V2.
+6. V1 funnel: keywords, duplicates, flags and score (same rules as RSS), table `offers` (primary key company, key; RSS key `url:<link>`, a V1 table is migrated in place), display. An offer without detail is stored and scored on title, company and location.
+A company that fails is logged and skipped.
 
 Known limitations:
 - The LLM can skip or repeat a page, and its stop reason is not reliable: the judge checks the total announced by the page.
@@ -116,6 +123,8 @@ Known limitations:
 - At most 3000 elements are collected per observation; the agent sees only those from the first new or changed one.
 - On a growing list whose pagination sits above the offers and never changes, that pagination is hidden from the agent.
 - The new text sent to the agent is cut at 30000 characters.
+- Offers seen in `listed_offers` but lost before the `offers` table (crash later in the run) are no longer new on the next run.
+- An offer stays in the database when it leaves the list: nothing marks it as closed yet.
 - The forbidden-action words cover four languages; other languages rely on the other guardrails (forms, navigation interception).
 - On a shared applicant tracking system domain, an offer link to another company on the same domain is accepted; the detail page must still contain the offer title.
 - Detail extraction: a value quoted from an injection in the page (a requirement, a contract word) passes the checks; it stays data, with no effect on what the program does.
