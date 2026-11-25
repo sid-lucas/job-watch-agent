@@ -5,14 +5,17 @@ filter, with their own link on the site of the list, up to a budget: every page 
 costs an LLM call and a request to the site, and the phase must stay inside the perimeter
 of the agent. Every offer set aside gets a reason, so it can be counted.
 """
+import time
 from collections import Counter
+from collections.abc import Callable
 from typing import Literal
 
 from pydantic import BaseModel
 
 from job_watch import config
-from job_watch.list_agent.extraction import CheckedOffer
+from job_watch.list_agent.extraction import CheckedOffer, find_in
 from job_watch.web.click_rules import site_host
+from job_watch.web.session import BrowserSession, SessionError
 
 SkipReason = Literal["not_new", "not_kept", "no_link", "other_site", "shared_link", "budget"]
 
@@ -58,3 +61,51 @@ def plan_details(offers: list[CheckedOffer], new_keys: list[str], kept_keys: lis
             continue
         skipped.append(Skipped(key=offer.key, title=offer.title, reason=reason))
     return DetailPlan(to_open=to_open, skipped=skipped)
+
+
+# ---------- opening the pages ----------
+
+PageFailure = Literal["not_allowed", "redirected", "title_not_found"]
+
+
+class DetailPage(BaseModel):
+    key: str
+    url: str                        # final URL of the page
+    text: str                       # raw page text, cut at DETAIL_MAX_CHARS
+    truncated: bool
+    failure: PageFailure | None = None      # set: the page is ignored, text is empty
+    detail: str = ""
+
+
+def open_detail(offer: CheckedOffer, list_url: str, **session_options) -> DetailPage:
+    """Open the page of one offer (one observation, no click) and accept it only if it shows the title.
+
+    BrowserSession checks robots.txt and the blocked domains before the first request, and its
+    guard refuses any navigation to another host. The final URL is checked again.
+    """
+    try:
+        with BrowserSession(offer.link, **session_options) as session:
+            obs = session.observe()
+    except SessionError as error:
+        return DetailPage(key=offer.key, url=offer.link, text="", truncated=False, failure="not_allowed",
+                          detail=str(error)[:150])
+    if site_host(obs.url) != site_host(list_url):
+        return DetailPage(key=offer.key, url=obs.url, text="", truncated=False, failure="redirected",
+                          detail=f"now on {site_host(obs.url)}")
+    text = obs.new_text_full        # first observation: every line of the page, never cut
+    if find_in(text, offer.title) is None:
+        return DetailPage(key=offer.key, url=obs.url, text="", truncated=False, failure="title_not_found",
+                          detail=f"{offer.title[:80]!r} not in the page")
+    return DetailPage(key=offer.key, url=obs.url, text=text[:config.DETAIL_MAX_CHARS],
+                      truncated=len(text) > config.DETAIL_MAX_CHARS)
+
+
+def open_details(offers: list[CheckedOffer], list_url: str, pause: float = config.DETAIL_PAUSE_SECONDS,
+                 sleep: Callable[[float], None] = time.sleep, **session_options) -> list[DetailPage]:
+    """Open the offer pages one after the other, with a pause between two pages."""
+    pages = []
+    for number, offer in enumerate(offers):
+        if number:
+            sleep(pause)
+        pages.append(open_detail(offer, list_url, **session_options))
+    return pages

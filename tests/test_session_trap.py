@@ -393,3 +393,25 @@ def test_collect_company_saves_new_offers_then_only_last_seen(site, tmp_path, mo
     stored = conn.execute("SELECT title, kept, first_seen <= last_seen FROM listed_offers ORDER BY title").fetchall()
     assert stored == [("Cloud Engineer", 1, 1), ("Data Analyst", 1, 1), ("Office Manager", 0, 1)]
     conn.close()
+
+
+def test_detail_pages_are_accepted_only_with_the_title_and_never_outside_the_rules(site):
+    from job_watch.list_agent.detail import open_details
+    from job_watch.list_agent.extraction import CheckedOffer
+    base, log = site
+
+    def offer(key, title, path):
+        return CheckedOffer(title=title, location="Zurich", link=f"{base}/{path}", reference="", verified=True,
+                            key=key)
+
+    pauses = []
+    offers = [offer("ok", "Cloud engineer", "detail_ok.html"),          # title found (case ignored)
+              offer("other", "Cloud Engineer", "detail_other.html"),    # generic page: no title
+              offer("robots", "Cloud Engineer", "private/detail.html")]  # forbidden by robots.txt
+    pages = {p.key: p for p in open_details(offers, f"{base}/offers.html", sleep=pauses.append,
+                                            render_wait_ms=FAST_RENDER_MS)}
+    assert pages["ok"].failure is None and "Kubernetes" in pages["ok"].text
+    assert pages["other"].failure == "title_not_found" and pages["other"].text == ""
+    assert pages["robots"].failure == "not_allowed"
+    assert pauses == [2, 2]                                             # between pages, not before the first
+    assert not any(path.startswith("/private/") for _, _, path in log)  # never requested
