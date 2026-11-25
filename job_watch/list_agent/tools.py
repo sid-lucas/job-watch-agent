@@ -131,8 +131,14 @@ def make_tools(session: SessionThread) -> list[StructuredTool]:
     """Executable tools bound to one open browser session (confined to its thread: ToolNode
     runs tools in worker threads)."""
 
-    def run_observe() -> str:
-        return format_observation(session.observe())
+    def run_observe() -> tuple[str, dict]:
+        obs = session.observe()
+        # The artifact stays in the ToolMessage, never goes to the LLM: it is used to summarise
+        # this observation once a newer one exists (graph.summarise_old_observations)
+        artifact = {"title": obs.title, "new_lines": obs.new_line_count, "elements": len(obs.elements),
+                    "current": [e.name for e in obs.elements if e.aria_current][:3],
+                    "names": {e.id: e.name[:60] for e in obs.elements}}
+        return format_observation(obs), artifact
 
     def run_click(element_id: int, purpose: str) -> str:
         result = session.click(element_id, purpose)
@@ -157,7 +163,7 @@ def make_tools(session: SessionThread) -> list[StructuredTool]:
 
     return [
         StructuredTool.from_function(run_observe, name="observe", description=observe.__doc__,
-                                     args_schema=observe),
+                                     args_schema=observe, response_format="content_and_artifact"),
         StructuredTool.from_function(run_click, name="click", description=click.__doc__, args_schema=click),
         StructuredTool.from_function(run_back_to_list, name="back_to_list", description=back_to_list.__doc__,
                                      args_schema=back_to_list),
