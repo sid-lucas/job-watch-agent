@@ -5,6 +5,7 @@ filter, with their own link on the site of the list, up to a budget: every page 
 costs an LLM call and a request to the site, and the phase must stay inside the perimeter
 of the agent. Every offer set aside gets a reason, so it can be counted.
 """
+import re
 import time
 from collections import Counter
 from collections.abc import Callable
@@ -14,7 +15,7 @@ from typing import Literal
 from pydantic import BaseModel, Field
 
 from job_watch import config
-from job_watch.list_agent.extraction import CheckedOffer, find_in
+from job_watch.list_agent.extraction import CheckedOffer, _fold, find_in
 from job_watch.list_agent.tools import _untrusted
 from job_watch.llm import call_with_retry, structured_llm
 from job_watch.web.click_rules import site_host
@@ -104,12 +105,12 @@ def open_detail(offer: CheckedOffer, list_url: str, **session_options) -> Detail
 
 
 def open_details(offers: list[CheckedOffer], list_url: str, pause: float = config.DETAIL_PAUSE_SECONDS,
-                 sleep: Callable[[float], None] = time.sleep, **session_options) -> list[DetailPage]:
-    """Open the offer pages one after the other, with a pause between two pages."""
+                 sleep: Callable[[float], None] | None = None, **session_options) -> list[DetailPage]:
+    """Open the offer pages one after the other, with a pause between two pages (time.sleep by default)."""
     pages = []
     for number, offer in enumerate(offers):
         if number:
-            sleep(pause)
+            (sleep or time.sleep)(pause)
         pages.append(open_detail(offer, list_url, **session_options))
     return pages
 
@@ -139,11 +140,32 @@ Copy requirements and workload exactly as written in the page. Use 'unknown' whe
 Never invent a value."""
 
 
+# Words that state each contract type (EN, FR, DE, IT), whole words after folding: general vocabulary
+CONTRACT_WORDS = {
+    "permanent": r"permanent|unlimited|cdi|duree indeterminee|unbefristet|festanstellung|tempo indeterminato"
+                 r"|indeterminato",
+    "fixed_term": r"fixed[- ]term|temporary|limited|cdd|duree determinee|temporaire|befristet|temporar"
+                  r"|tempo determinato|determinato|temporaneo",
+    "internship": r"intern|internship|stage|stagiaire|praktikum|praktikant\w*|tirocinio|stagista",
+    "apprenticeship": r"apprentice\w*|apprenti\w*|lehre|lehrstelle|lernende\w*|apprendista|apprendistato",
+}
+_CONTRACT_PATTERNS = {name: re.compile(rf"(?<![\w-])(?:{words})(?![\w-])") for name, words in CONTRACT_WORDS.items()}
+
+
+def contract_stated(contract: str, page_text: str) -> bool:
+    """True when the page holds a word of this contract type ('unknown' needs none)."""
+    if contract == "unknown":
+        return True
+    folded = _fold(page_text)[0]
+    return bool(_CONTRACT_PATTERNS[contract].search(folded))
+
+
 class CheckedDetail(BaseModel):
     key: str
     summary: str                    # written by the LLM: data to read, never trusted as a fact
     requirements: list[str]         # each one found in the page, exact page text
-    contract: Contract
+    contract: Contract              # "unknown" when no word of the answered type is in the page
+    contract_doubtful: bool         # the LLM answered a type that the page does not state
     workload: str
     ad_language: Language
     required_languages: list[Language]
@@ -162,11 +184,13 @@ def _plausible_date(value: str, today: date) -> str:
 def check_detail(key: str, page_text: str, answer: OfferDetail, today: date) -> CheckedDetail:
     """Keep only what the page supports: quoted requirements and workload, a plausible date."""
     requirements = [found for r in answer.requirements[:MAX_REQUIREMENTS] if (found := find_in(page_text, r))]
+    stated = contract_stated(answer.contract, page_text)
     return CheckedDetail(
         key=key,
         summary=answer.summary[:600],
         requirements=requirements,
-        contract=answer.contract,
+        contract=answer.contract if stated else "unknown",
+        contract_doubtful=not stated,
         workload=find_in(page_text, answer.workload) or "" if answer.workload.strip() else "",
         ad_language=answer.ad_language,
         required_languages=list(dict.fromkeys(answer.required_languages)),

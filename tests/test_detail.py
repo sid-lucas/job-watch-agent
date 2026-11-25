@@ -74,3 +74,19 @@ def test_closed_lists_and_no_score_field():
         answer(contract="CEO with bonus")
     parsed = OfferDetail.model_validate({**answer().model_dump(), "score": 100})
     assert "score" not in parsed.model_dump()
+
+
+def test_a_contract_not_stated_in_the_page_becomes_unknown():
+    from datetime import date
+    from job_watch.list_agent.detail import check_detail, contract_stated
+    today = date(2026, 11, 25)
+    page = "Security Analyst\nGeneva, internship of 6 months"
+    wrong = check_detail("k", page, answer(contract="permanent"), today)
+    assert (wrong.contract, wrong.contract_doubtful) == ("unknown", True)
+    right = check_detail("k", page, answer(contract="internship"), today)
+    assert (right.contract, right.contract_doubtful) == ("internship", False)
+    assert contract_stated("permanent", "Contrat à durée indéterminée (CDI)")
+    assert contract_stated("fixed_term", "Befristete Stelle, befristet auf 12 Monate")
+    assert not contract_stated("fixed_term", "unbefristet")            # whole words only
+    assert contract_stated("apprenticeship", "Lehrstelle als Informatiker EFZ")
+    assert contract_stated("unknown", "")

@@ -116,6 +116,7 @@ Known limitations:
 - On a growing list whose pagination sits above the offers and never changes, that pagination is hidden from the agent.
 - The new text sent to the agent is cut at 30000 characters.
 - The forbidden-action words cover four languages; other languages rely on the other guardrails (forms, navigation interception).
+- Detail extraction: a value quoted from an injection in the page (a requirement, a contract word) passes the checks; it stays data, with no effect on what the program does.
 
 ## LLM usage
 
