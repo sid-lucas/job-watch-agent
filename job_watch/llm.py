@@ -1,10 +1,13 @@
 """Shared LLM access for public web data: cloud models first, a local model as last resort.
 Personal documents are never sent through this module."""
 import os
+import threading
 import time
+from collections import Counter
 from functools import cache
 
 from dotenv import load_dotenv
+from langchain_core.callbacks import BaseCallbackHandler
 from langchain_google_genai import ChatGoogleGenerativeAI
 from langchain_ollama import ChatOllama
 
@@ -15,13 +18,47 @@ load_dotenv()
 GEMINI_TIMEOUT = 30     # seconds; an overloaded cloud model is replaced by the next one in the chain
 
 
+_calls: Counter[str] = Counter()     # "provider:model" -> answers; "provider:model failed" -> errors
+_calls_lock = threading.Lock()
+
+
+class _CallCounter(BaseCallbackHandler):
+    """Counts the calls answered (and failed) by one model of the chain."""
+
+    def __init__(self, name: str):
+        self.name = name
+
+    def on_llm_end(self, response, **kwargs) -> None:
+        with _calls_lock:
+            _calls[self.name] += 1
+
+    def on_llm_error(self, error, **kwargs) -> None:
+        with _calls_lock:
+            _calls[f"{self.name} failed"] += 1
+
+
+def model_calls() -> dict[str, int]:
+    """Calls answered and failed per model since the start of the process (a copy)."""
+    with _calls_lock:
+        return dict(_calls)
+
+
+def calls_since(before: dict[str, int]) -> dict[str, int]:
+    """Calls per model made since an earlier model_calls() snapshot."""
+    now = model_calls()
+    return {name: count - before.get(name, 0) for name, count in sorted(now.items())
+            if count - before.get(name, 0)}
+
+
 def _client(provider: str, model: str):
+    counter = [_CallCounter(f"{provider}:{model}")]
     if provider == "gemini":
         return ChatGoogleGenerativeAI(model=model, google_api_key=os.environ["GEMINI_API_KEY"],
-                                      timeout=GEMINI_TIMEOUT, max_retries=1)
+                                      timeout=GEMINI_TIMEOUT, max_retries=1, callbacks=counter)
     if provider == "ollama":
         # Reasoning disabled: not supported together with structured output
-        return ChatOllama(model=model, num_ctx=config.OLLAMA_NUM_CTX, temperature=0, reasoning=False)
+        return ChatOllama(model=model, num_ctx=config.OLLAMA_NUM_CTX, temperature=0, reasoning=False,
+                          callbacks=counter)
     raise ValueError(f"Unknown LLM provider: {provider}")
 
 

@@ -23,7 +23,7 @@ from pydantic import BaseModel, ConfigDict, Field, model_validator
 
 from job_watch.list_agent.extraction import extract_observations
 from job_watch.list_agent.run import pages_reached, run_list_agent
-from job_watch.llm import call_with_retry
+from job_watch.llm import call_with_retry, calls_since, model_calls
 from job_watch.offers.extract import MAX_CHARS, ListedOffer, extract_offers
 from job_watch.web.browser import render_page
 
@@ -165,6 +165,7 @@ class CaseMetrics(BaseModel):
     failed_chunks: int | None
     seconds: float
     offers: list[OfferRow]
+    model_calls: dict[str, int] = {}    # calls answered (and failed) per model during the case
 
 
 def measure(case: ListCase, result: RunResult, seconds: float) -> CaseMetrics:
@@ -199,6 +200,10 @@ def measure(case: ListCase, result: RunResult, seconds: float) -> CaseMetrics:
     )
 
 
+def format_model_calls(calls: dict[str, int]) -> str:
+    return ", ".join(f"{name} {count}" for name, count in calls.items()) or "no LLM call"
+
+
 def pct(value: float | None) -> str:
     return "  -  " if value is None else f"{value:5.0%}"
 
@@ -211,6 +216,7 @@ def print_case(m: CaseMetrics, verbose: bool = False) -> None:
           f"pages {m.pages_reached}  llm {m.llm_calls}  more_pages {m.more_pages}  "
           + (f"verified {m.verified}/{m.unique}  failed chunks {m.failed_chunks}  " if m.verified is not None else "")
           + f"{m.seconds}s  [{m.stop_reason}]")
+    print(f"            models: {format_model_calls(m.model_calls)}")
     if verbose:
         for row in m.offers:
             if not row.grounded:
@@ -249,12 +255,14 @@ def main() -> None:
              if (not args.list or c.company_list == args.list) and (not args.case or c.company == args.case)]
     metrics, skipped = [], 0
     for case in cases:
-        start = time.perf_counter()
+        print(f"... {case.company}", flush=True)
+        start, before = time.perf_counter(), model_calls()
         result = RUNNERS[args.runner](case)
         if result is None:
             skipped += 1
             continue
         m = measure(case, result, time.perf_counter() - start)
+        m.model_calls = calls_since(before)
         metrics.append(m)
         print_case(m, args.verbose)
     print_summary(metrics, skipped)

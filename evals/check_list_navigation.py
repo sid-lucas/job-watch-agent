@@ -14,7 +14,8 @@ from pathlib import Path
 
 from pydantic import BaseModel
 
-from evals.check_list_agent import ListCase, load_cases, normalise
+from evals.check_list_agent import ListCase, format_model_calls, load_cases, normalise
+from job_watch.llm import calls_since, model_calls
 from job_watch.list_agent.run import AgentRun, pages_reached, run_list_agent
 
 
@@ -35,6 +36,7 @@ class NavigationMetrics(BaseModel):
     back_to_list: int
     seconds: float
     clicks: list[str]                   # clicks done and refused, in order, for the report
+    model_calls: dict[str, int] = {}    # calls answered (and failed) per model during the case
 
     @property
     def complete(self) -> bool:
@@ -81,10 +83,13 @@ def main():
     metrics = []
     for case in cases:
         print(f"... {case.company}", flush=True)
+        before = model_calls()
         metrics.append(measure(case, run_list_agent(case.url, case.company)))
         m = metrics[-1]
+        m.model_calls = calls_since(before)
         print(f"    pages {m.pages_reached}/{m.pages_expected}, {m.stop}, {m.llm_calls} llm calls"
               + (f" ({m.explanation})" if m.explanation else ""), flush=True)
+        print(f"    models: {format_model_calls(m.model_calls)}", flush=True)
     print_table(metrics)
     if args.report:
         args.report.write_text(json.dumps([m.model_dump() for m in metrics], indent=2, ensure_ascii=False))
