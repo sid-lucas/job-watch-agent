@@ -62,3 +62,11 @@ def test_a_link_that_joins_or_extends_the_lines_of_an_offer_belongs_to_the_chunk
                     href="https://jobs.example.com/all")
     found = chunk_links("Security Engineer (m/w)\nFull-time\nBern", [offer, other])
     assert [e.id for e in found] == [1]      # "Bern" is too short to tie a link to the chunk
+
+
+def test_find_in_ignores_case_accents_and_spaces_and_returns_the_page_text():
+    from job_watch.list_agent.extraction import find_in
+    assert find_in("Poste : Ingénieur  Sécurité (h/f)\nGenève", "ingenieur securite (H/F)") == "Ingénieur  Sécurité (h/f)"
+    assert find_in("Responsable d’équipe", "responsable d'equipe") == "Responsable d’équipe"
+    assert find_in("Data Analyst", "Data Scientist") is None
+    assert find_in("Data Analyst", "  ") is None

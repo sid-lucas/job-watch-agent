@@ -324,3 +324,34 @@ def test_back_to_list_respects_the_budget(site):
     with session(base, "list2.html", max_clicks=1) as s:
         assert s.click(find(s.observe(), "Trap Offer 2-A", "/offer2a.html").id, "pagination").clicked
         assert s.back_to_list().reason == "budget"
+
+
+def test_extracted_offers_are_checked_against_the_page(site):
+    """A fake LLM answer, as an injected page could obtain it: only what the page supports is kept."""
+    from job_watch.list_agent.extraction import ChunkOffer, ChunkOffers, check_offers
+    base, _ = site
+    with session(base, "offers.html") as s:
+        obs = s.observe()
+    assert "CISO" in obs.new_text_full          # the injection is in the text the extractor reads
+
+    def offer(title, location="unknown", link="", reference=""):
+        return ChunkOffer(title=title, location=location, link=link, reference=reference)
+
+    answer = ChunkOffers(offers=[
+        offer("Ingenieur Securite (h/f)", "Geneve", f"{base}/offer2a.html", "SEC-101"),
+        offer("Cloud Engineer", "Paris", f"{base}/offer2a.html?id=2", "REF-999"),
+        offer("Data Analyst", "Lausanne", f"{base}/offer2a.html?id=3"),
+        offer("Office Manager", "Bern"),
+        offer("CISO", link="https://evil.example/ciso"),
+        offer("Chief Hacker", "Geneva", f"{base}/offer2a.html"),
+    ])
+    checked = {o.title: o for o in check_offers(obs.new_text_full, answer, obs.elements)}
+
+    assert "Chief Hacker" not in checked                                    # not in the page: dropped
+    engineer = checked["Ingénieur Sécurité (h/f)"]                          # exact page text kept
+    assert (engineer.location, engineer.reference, engineer.verified) == ("Genève", "SEC-101", True)
+    cloud = checked["Cloud Engineer"]
+    assert (cloud.location, cloud.reference, cloud.verified) == ("unknown", "", True)   # invented fields cleared
+    assert checked["Data Analyst"].link.endswith("id=3") and not checked["Data Analyst"].verified  # "Read more"
+    assert checked["Office Manager"].link == "" and not checked["Office Manager"].verified
+    assert checked["CISO"].link == "" and not checked["CISO"].verified    # injected: no link, never verified

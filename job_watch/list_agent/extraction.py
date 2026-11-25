@@ -4,6 +4,8 @@ The code, not the agent, decides what is extracted: every observation that broug
 text. The full new text (Observation.new_text_full) is cut into chunks small enough for the
 extractor to list every offer.
 """
+import unicodedata
+
 from pydantic import BaseModel, Field
 
 from job_watch.list_agent.tools import _untrusted
@@ -91,3 +93,66 @@ def extract_chunk(company: str, chunk: str, elements: list[Element]) -> ChunkOff
     prompt = (f"Company: {company}\n\n<text>\n{_untrusted(chunk)}\n</text>\n\n"
               f"<links>\n{links}\n</links>")
     return call_with_retry(structured_llm(ChunkOffers).invoke, [("system", SYSTEM), ("user", prompt)])
+
+
+# ---------- checks in code ----------
+
+class CheckedOffer(BaseModel):
+    title: str          # exact text of the page, not the LLM's version
+    location: str       # "unknown" when not found in the chunk
+    link: str           # href of an element of the observation, or ""
+    reference: str      # found in the chunk, or ""
+    verified: bool      # the link is the href of an element whose text or name contains the title
+
+
+def _fold(text: str) -> tuple[str, list[int]]:
+    """Text for comparison (no case, no accents, single spaces, plain apostrophes), with the
+    position in the original text of each folded character."""
+    folded: list[str] = []
+    positions: list[int] = []
+    for i, char in enumerate(text):
+        if char.isspace():
+            if folded and folded[-1] != " ":
+                folded.append(" ")
+                positions.append(i)
+            continue
+        char = char.replace("’", "'").replace("‘", "'")
+        for part in unicodedata.normalize("NFKD", char).casefold():
+            if not unicodedata.combining(part):
+                folded.append(part)
+                positions.append(i)
+    while folded and folded[-1] == " ":
+        folded.pop()
+        positions.pop()
+    return "".join(folded), positions
+
+
+def find_in(text: str, value: str) -> str | None:
+    """The exact part of text that matches value after folding, or None if value is not in text."""
+    folded_value = _fold(value)[0]
+    if not folded_value:
+        return None
+    folded_text, positions = _fold(text)
+    start = folded_text.find(folded_value)
+    if start < 0:
+        return None
+    return text[positions[start]:positions[start + len(folded_value) - 1] + 1]
+
+
+def check_offers(chunk: str, answer: ChunkOffers, elements: list[Element]) -> list[CheckedOffer]:
+    """Keep only what the page supports. An offer whose title is not in the chunk is dropped."""
+    hrefs = {e.href for e in elements if e.href}
+    checked = []
+    for offer in answer.offers:
+        title = find_in(chunk, offer.title)
+        if title is None:
+            continue            # invented, or rewritten beyond recognition
+        location = find_in(chunk, offer.location) if offer.location.strip().casefold() != "unknown" else None
+        reference = find_in(chunk, offer.reference) or ""
+        link = offer.link if offer.link in hrefs else ""
+        verified = bool(link) and any(
+            e.href == link and any(find_in(label, title) for label in (e.text, e.name) if label)
+            for e in elements)
+        checked.append(CheckedOffer(title=title, location=location or "unknown", link=link,
+                                    reference=reference, verified=verified))
+    return checked
