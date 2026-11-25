@@ -31,9 +31,9 @@ CREATE TABLE IF NOT EXISTS listed_offers (
 """
 
 
-def connect(path: Path = config.DB_PATH) -> sqlite3.Connection:
-    """Open the database and create the table if needed."""
-    conn = sqlite3.connect(path)
+def connect(path: Path | None = None) -> sqlite3.Connection:
+    """Open the database (config.DB_PATH by default, read at call time) and create the table if needed."""
+    conn = sqlite3.connect(path or config.DB_PATH)
     conn.execute(SCHEMA)
     return conn
 
