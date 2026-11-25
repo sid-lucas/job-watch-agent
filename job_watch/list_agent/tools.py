@@ -6,11 +6,14 @@ validates the arguments with the same schema, then the implementation goes throu
 session guardrails, which decide whether anything happens in the browser.
 """
 from typing import Literal
+from urllib.parse import urlsplit
 
 from langchain_core.tools import StructuredTool
 from pydantic import BaseModel, ConfigDict, Field
 
-from job_watch.web.session import Observation
+from job_watch.web import access
+from job_watch.web.click_rules import Refusal, check, site_host
+from job_watch.web.session import Element, Observation
 from job_watch.web.session_thread import SessionThread
 
 
@@ -45,16 +48,68 @@ def _untrusted(text: str) -> str:
     return text.replace("<", "‹").replace(">", "›")
 
 
+PURPOSES = ("pagination", "cookie_refusal", "cookie_acceptance")
+REASON_LABELS = {
+    "control_type": "not a plain link or button",
+    "form_with_inputs": "form with fields",
+    "forbidden_action": "forbidden action",
+    "not_pagination": "search, sort, filter or menu",
+    "acceptance_word": "acceptance",
+    "preferences": "cookie preferences",
+    "not_refusal": "not a refusal",
+    "acceptance_not_allowed": "acceptance only after a failed refusal",
+    "purpose_mismatch": "wrong place",
+}
+
+
+def _label(refusal: Refusal) -> str:
+    """Plain words for a refusal, without URL."""
+    if refusal.reason == "link_target":
+        if refusal.detail.startswith("other host"):
+            return "other site"
+        if refusal.detail.startswith("target"):
+            return "new tab"
+        if refusal.detail == "download link":
+            return "download"
+        return "not a web link"
+    return REASON_LABELS[refusal.reason]
+
+
+def element_verdict(element: Element, page_host: str, acceptance_fallback: bool) -> str:
+    """Hint shown to the LLM: the purposes the click rules would accept, or why none is.
+
+    Same rules as session.click(), which checks again at click time: the hint is never trusted.
+    A same-site link that robots.txt forbids is also marked (access.can_fetch, as the guard).
+    """
+    refusals = {p: check(element, p, page_host, acceptance_fallback) for p in PURPOSES}
+    allowed = [p for p in PURPOSES if refusals[p] is None]
+    if "pagination" in allowed and element.href and urlsplit(element.href).scheme in ("http", "https") \
+            and not access.can_fetch(element.href):
+        return "[blocked: robots.txt]"
+    if allowed:
+        return f"[ok: {', '.join(allowed)}]"
+    if element.in_consent:
+        # Acceptance reason first, unless the control has no acceptance word at all
+        refusal = refusals["cookie_acceptance"]
+        if refusal.detail == "no acceptance word":
+            refusal = refusals["cookie_refusal"]
+    else:
+        refusal = refusals["pagination"]
+    return f"[blocked: {_label(refusal)}]"
+
+
 def format_observation(obs: Observation) -> str:
     """What the LLM reads of an observation: new text and numbered elements, between <page> tags."""
     if obs.new_line_count:
         text = _untrusted(obs.new_text) + ("\n(new text truncated)" if obs.new_text_truncated else "")
     else:
         text = "(nothing new since the previous observation)"
+    host = site_host(obs.url)
     elements = []
     for e in obs.elements:
         marks = " [cookie banner]" if e.in_consent else ""
-        elements.append(f"[{e.id}] {e.role} {_untrusted(e.name)!r}{marks}")
+        verdict = element_verdict(e, host, obs.acceptance_fallback)
+        elements.append(f"[{e.id}] {e.role} {_untrusted(e.name)!r}{marks} {verdict}")
     more = "\n(element list truncated)" if obs.elements_truncated else ""
     return (f"<page>\n<new_text>\n{text}\n</new_text>\n<elements>\n" + "\n".join(elements) + more
             + "\n</elements>\n</page>")

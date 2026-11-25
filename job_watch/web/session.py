@@ -125,6 +125,7 @@ class Observation(BaseModel):
     elements: list[Element]
     elements_truncated: bool
     iframes: list[FrameReport] = []
+    acceptance_fallback: bool = False   # cookie acceptance already allowed on this host (a refusal failed)
 
 
 class ClickResult(BaseModel):
@@ -227,6 +228,7 @@ class BrowserSession:
             elements=[element for element, _ in elements],
             elements_truncated=truncated,
             iframes=iframes,
+            acceptance_fallback=site_host(self.page.url) in self._fallback_hosts,
         )
         self._elements = {element.id: (element, frame) for element, frame in elements}
         self.last_observation = observation
