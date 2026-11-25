@@ -240,3 +240,16 @@ def test_pagination_new_text_is_the_next_page(site):
         assert s.click(find(s.observe(), "Next", "/list2.html", target=None).id, "pagination").clicked
         obs = s.observe()
         assert "Trap Offer 2-A" in obs.new_text and "Trap Offer 1-A" not in obs.new_text
+
+
+def test_session_thread_accepts_calls_from_other_threads(site):
+    from concurrent.futures import ThreadPoolExecutor
+    from job_watch.web.session_thread import SessionThread
+    base, _ = site
+    with SessionThread(f"{base}/list1.html", render_wait_ms=FAST_RENDER_MS) as s:
+        with ThreadPoolExecutor(max_workers=2) as workers:      # as ToolNode does
+            obs = workers.submit(s.observe).result()
+            element = find(obs, "Next", "/list2.html", target=None)
+            assert workers.submit(s.click, element.id, "pagination").result().clicked
+            assert "Trap Offer 2-A" in workers.submit(s.observe).result().new_text
+        assert "click" in [event.kind for event in s.trail]
