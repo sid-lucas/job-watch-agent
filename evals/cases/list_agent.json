@@ -5,6 +5,7 @@
       "company_list": "banks_security",
       "url": "https://lombardodier.wd3.myworkdayjobs.com/Lombard_Odier_Careers",
       "pagination": "numbered",
+      "expected_pages": 4,
       "expected_total": 69,
       "total_source": "stated_by_page",
       "total_text": "69 JOBS FOUND",
@@ -22,6 +23,7 @@
       "company_list": "banks_security",
       "url": "https://careers.icrc.org/go/All-Jobs/3807301/",
       "pagination": "more_results",
+      "expected_pages": 3,
       "expected_total": 66,
       "total_source": "stated_by_page",
       "total_text": "Showing 1 to 25 of 66 Jobs",
@@ -39,6 +41,7 @@
       "company_list": "banks_security",
       "url": "https://jobs.ubs.com/TGnewUI/Search/home/HomeWithPreLoad?partnerid=25008&siteid=5012&PageType=searchResults&SearchType=linkquery&LinkID=15231#keyWordSearch=&locationSearch=",
       "pagination": "next_button",
+      "expected_pages": 12,
       "expected_total": 599,
       "total_source": "stated_by_page",
       "total_text": "599 results",
@@ -56,6 +59,7 @@
       "company_list": "banks_security",
       "url": "https://www.bcn.ch/la-bcn/carrieres/postes-ouverts",
       "pagination": "single",
+      "expected_pages": 1,
       "expected_total": 3,
       "total_source": "counted",
       "total_text": null,
@@ -72,6 +76,7 @@
       "company_list": "banks_security",
       "url": "https://careers.smartrecruiters.com/SCRT",
       "pagination": "single",
+      "expected_pages": 1,
       "expected_total": 2,
       "total_source": "counted",
       "total_text": null,
@@ -87,6 +92,7 @@
       "company_list": "banks_security",
       "url": "https://evht.fa.ocs.oraclecloud.eu/hcmUI/CandidateExperience/en/sites/CX_7001/jobs",
       "pagination": "single",
+      "expected_pages": 1,
       "expected_total": 23,
       "total_source": "stated_by_page",
       "total_text": "23 OPEN JOBS",
@@ -103,6 +109,7 @@
       "company_list": "watchmakers",
       "url": "https://careers.audemarspiguet.com/en/job-listing",
       "pagination": "load_more",
+      "expected_pages": 8,
       "expected_total": 75,
       "total_source": "stated_by_page",
       "total_text": "75 of 75 job openings",
@@ -113,13 +120,14 @@
         {"title": "Apprentissage - Micromécanicien (CFC)", "page": 1},
         {"title": "Head of Movement Development", "page": 3}
       ],
-      "notes": "10 offers shown, then 'View more'. The text says '75 of 75' although only 10 are visible. Location is written before the title."
+      "notes": "10 offers shown, then 'View more'. The text says '75 of 75' although only 10 are visible. Location is written before the title. Pages: 8, derived (10 offers per load in the step-1 texts, 75 in total)."
     },
     {
       "company": "Breitling",
       "company_list": "watchmakers",
       "url": "https://careers.breitling.com/search/?locale=en_GB",
       "pagination": "numbered",
+      "expected_pages": 7,
       "expected_total": 69,
       "total_source": "stated_by_page",
       "total_text": "1 to 10 of 69 results",
@@ -137,6 +145,7 @@
       "company_list": "watchmakers",
       "url": "https://chopard.csod.com/ux/ats/careersite/1/home?c=chopard",
       "pagination": "numbered",
+      "expected_pages": 2,
       "expected_total": null,
       "total_source": null,
       "total_text": null,
@@ -147,13 +156,14 @@
         {"title": "Apprenti(e) Horloger(ère) CFC", "page": 1},
         {"title": "Constructeur Mouvements (H/F/D)", "page": 2}
       ],
-      "notes": "Cornerstone. 25 offers per page, pages '1 2'. No stated total; the filter 'Date Posted: Anytime (44)' suggests 44 but is a facet count. Two offers show only '(m/f/d)' as title in the rendered text."
+      "notes": "Cornerstone. 25 offers per page, pages '1 2'. No stated total; the filter 'Date Posted: Anytime (44)' suggests 44 but is a facet count. Two offers show only '(m/f/d)' as title in the rendered text. Pages: 2, derived (25 + 19 offers seen = 44, the 'Anytime (44)' filter count)."
     },
     {
       "company": "Rolex",
       "company_list": "watchmakers",
       "url": "https://www.carrieres-rolex.com/Rolex/go/Toutes-nos-offres-Rolex/2901501/",
       "pagination": "numbered",
+      "expected_pages": 6,
       "expected_total": null,
       "total_source": null,
       "total_text": null,
@@ -164,13 +174,14 @@
         {"title": "Gestionnaire d'atelier (H/F)", "page": 1},
         {"title": "Horloger restaurateur (H/F)", "page": 3}
       ],
-      "notes": "Table of 25 offers per page, pages 1 to 5 with '«' and '»'. No stated total. French interface."
+      "notes": "Table of 25 offers per page, pages 1 to 5 with '«' and '»'. No stated total. French interface. Pages: 6, seen in its pagination on 2026-11-25."
     },
     {
       "company": "Sellita",
       "company_list": "watchmakers",
       "url": "https://www.sellita.ch/index.php/en/jobs",
       "pagination": "single",
+      "expected_pages": 1,
       "expected_total": 16,
       "total_source": "counted",
       "total_text": null,
@@ -187,6 +198,7 @@
       "company_list": "watchmakers",
       "url": "https://www.csem.ch/en/jobs/",
       "pagination": "single",
+      "expected_pages": 1,
       "expected_total": 22,
       "total_source": "stated_by_page",
       "total_text": "22 results",

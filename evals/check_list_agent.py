@@ -40,6 +40,7 @@ class ListCase(BaseModel):
     company_list: Literal["banks_security", "watchmakers"]
     url: str = Field(pattern=r"^https?://")
     pagination: Literal["single", "numbered", "next_button", "load_more", "more_results"]
+    expected_pages: int = Field(ge=1, description="Pages, or 'load more' clicks + 1, to read the whole list")
     expected_total: int | None = Field(default=None, ge=0)
     total_source: Literal["stated_by_page", "counted"] | None = None
     total_text: str | None = None
