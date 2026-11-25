@@ -490,3 +490,73 @@ def test_collect_details_runs_the_three_steps(site, monkeypatch):
     assert "Kubernetes" in result.texts["ok"]
     assert [(p.key, p.failure) for p in result.refused_pages] == [("generic", "title_not_found")]
     assert {s.key: s.reason for s in result.skipped} == {"old": "not_new", "hr": "not_kept"}
+
+
+def test_main_runs_the_whole_career_site_pipeline(site, tmp_path, monkeypatch, capsys):
+    """main(): registry -> list -> filter -> detail -> score -> offers table -> display.
+    Real browser on the trap site; fake agent (one observation) and fake LLM answers."""
+    import json
+    import sqlite3
+    import main as entry
+    from job_watch import config
+    from job_watch.list_agent import collect, detail, extraction
+    from job_watch.list_agent.detail import OfferDetail
+    from job_watch.list_agent.extraction import ChunkOffer, ChunkOffers
+    from job_watch.list_agent.run import AgentRun
+    base, log = site
+    registry = tmp_path / "registry.json"
+    registry.write_text(json.dumps({"Trap": {"status": "ok", "jobs_url": f"{base}/list_detail.html"},
+                                    "Gone": {"status": "ok", "jobs_url": f"{base}/private/list2.html"}}))
+    db = tmp_path / "offers.db"
+
+    def fake_agent(url, company, on_update=None):
+        with BrowserSession(url, render_wait_ms=FAST_RENDER_MS) as s:
+            s.observe()
+            return AgentRun(stop="finish: no_pagination", trail=s.trail, observations=s.observations)
+
+    def fake_extract(company, chunk, elements):
+        rows = [("Cloud Engineer", "Zurich", "/detail_ok.html"), ("Security Analyst", "Geneva", "/detail_injection.html"),
+                ("SOC Analyst", "Lausanne", ""), ("HR Partner", "Geneva", "/offer2a.html"),
+                ("Cloud Architect", "Singapore", "/offer2a.html?id=5")]
+        return ChunkOffers(offers=[ChunkOffer(title=t, location=l, link=f"{base}{p}" if p else "", reference="")
+                                   for t, l, p in rows])
+
+    class FakeDetailModel:
+        def invoke(self, messages):
+            return OfferDetail(summary="Role.", requirements=["Knowledge of SIEM tools"], contract="internship",
+                               workload="100 %", ad_language="en", required_languages=["fr", "en"],
+                               posted="2026-11-20")
+
+    monkeypatch.setattr(collect.agent_run, "run_list_agent", fake_agent)
+    monkeypatch.setattr(extraction, "extract_chunk", fake_extract)
+    monkeypatch.setattr(detail, "structured_llm", lambda schema: FakeDetailModel())
+    monkeypatch.setattr(detail.time, "sleep", lambda seconds: None)
+    monkeypatch.setattr(config, "DB_PATH", config.DB_PATH)              # restored after the test
+    monkeypatch.setattr(config, "REGISTRY_PATH", config.REGISTRY_PATH)
+    monkeypatch.setattr(config, "KEYWORDS", ["cloud", "security", "soc"])
+    monkeypatch.setattr(config, "REJECT_RULES", [])
+    monkeypatch.setattr(config, "SCORE_RULES", [
+        {"name": "security title", "field": "title", "points": 30, "pattern": r"\b(security|soc)\b"}])
+    monkeypatch.setattr(config, "MIN_SCORE", 0)
+
+    argv = ["--sources", "career_sites", "--db", str(db), "--registry", str(registry)]
+    entry.main(argv)
+    out = capsys.readouterr().out
+    assert "Gone: FAILED SessionError" in out                           # robots.txt: the other company goes on
+    assert "3 new offers" in out and "Security Analyst @ Trap  [career_site]" in out
+    assert "(no own link for this offer)" in out                         # SOC Analyst
+
+    conn = sqlite3.connect(db)
+    rows = conn.execute("SELECT title, source, score, contract, description != '' FROM offers ORDER BY title").fetchall()
+    listed = conn.execute("SELECT title, kept FROM listed_offers ORDER BY title").fetchall()
+    conn.close()
+    # Kept: IT title, not abroad. Detail pages: Cloud Engineer and Security Analyst (title in the page)
+    assert rows == [("Cloud Engineer", "career_site", 0, "unknown", 1),       # "internship" not in the page
+                    ("SOC Analyst", "career_site", 30, "", 0),                # no link: stored without detail
+                    ("Security Analyst", "career_site", 30, "internship", 1)]
+    assert listed == [("Cloud Architect", 0), ("Cloud Engineer", 1), ("HR Partner", 0), ("SOC Analyst", 1),
+                      ("Security Analyst", 1)]
+    assert not any(path.startswith(("/apply.html", "/private/")) for _, _, path in log)
+
+    entry.main(argv)                                                     # second run: nothing new
+    assert "No new offers since last run." in capsys.readouterr().out
