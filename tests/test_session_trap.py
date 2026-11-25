@@ -358,3 +358,38 @@ def test_extracted_offers_are_checked_against_the_page(site):
     assert checked["Data Analyst"].link.endswith("id=3") and not checked["Data Analyst"].verified  # "Read more"
     assert checked["Office Manager"].link == "" and not checked["Office Manager"].verified
     assert checked["CISO"].link == "" and not checked["CISO"].verified    # injected: no link, never verified
+
+
+def test_collect_company_saves_new_offers_then_only_last_seen(site, tmp_path, monkeypatch):
+    """Real browser on the trap page, fake agent (one observation) and fake extractor: no LLM."""
+    from job_watch import config
+    from job_watch.list_agent import collect, extraction
+    from job_watch.list_agent.extraction import ChunkOffer, ChunkOffers
+    from job_watch.list_agent.run import AgentRun
+    from job_watch.offers.listed import connect
+    base, _ = site
+
+    def fake_agent(url, company):
+        with BrowserSession(url, render_wait_ms=FAST_RENDER_MS) as s:
+            s.observe()
+            return AgentRun(stop="finish: no_pagination", trail=s.trail, observations=s.observations)
+
+    def fake_extract(company, chunk, elements):
+        return ChunkOffers(offers=[
+            ChunkOffer(title="Cloud Engineer", location="Zurich", link=f"{base}/offer2a.html?id=2", reference=""),
+            ChunkOffer(title="Data Analyst", location="Lausanne", link="", reference=""),
+            ChunkOffer(title="Office Manager", location="Bern", link="", reference="")])
+
+    monkeypatch.setattr(collect.agent_run, "run_list_agent", fake_agent)
+    monkeypatch.setattr(extraction, "extract_chunk", fake_extract)
+    monkeypatch.setattr(config, "KEYWORDS", ["cloud", "data"])
+    conn = connect(tmp_path / "test.db")
+
+    first = collect.collect_company("Trap", f"{base}/offers.html", conn)
+    assert len(first.new_keys) == 3 and first.pages_reached == 1
+    assert [o.title for o in first.new_kept] == ["Cloud Engineer", "Data Analyst"]
+    second = collect.collect_company("Trap", f"{base}/offers.html", conn)
+    assert second.new_keys == [] and second.new_kept == []
+    stored = conn.execute("SELECT title, kept, first_seen <= last_seen FROM listed_offers ORDER BY title").fetchall()
+    assert stored == [("Cloud Engineer", 1, 1), ("Data Analyst", 1, 1), ("Office Manager", 0, 1)]
+    conn.close()
