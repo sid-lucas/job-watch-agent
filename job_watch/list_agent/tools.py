@@ -12,7 +12,7 @@ from langchain_core.tools import StructuredTool
 from pydantic import BaseModel, ConfigDict, Field
 
 from job_watch.web import access
-from job_watch.web.click_rules import Refusal, check, site_host
+from job_watch.web.click_rules import Refusal, acceptance_pending, check, site_host
 from job_watch.web.session import Element, Observation
 from job_watch.web.session_thread import SessionThread
 
@@ -116,11 +116,15 @@ def format_observation(obs: Observation) -> str:
     else:
         text = "(nothing new since the previous observation)"
     host = site_host(obs.url)
+    # Same state check as session.click(): while acceptance is pending, only acceptance is allowed
+    pending = acceptance_pending(obs.elements, host, obs.acceptance_fallback)
     elements = []
     for e in obs.elements:
         marks = "".join(mark for mark, on in ((" [cookie banner]", e.in_consent), (" [current]", e.aria_current),
                                               (" [disabled]", e.disabled)) if on)
         verdict = element_verdict(e, host, obs.acceptance_fallback)
+        if pending and "cookie_acceptance" not in verdict and verdict.startswith("[allowed"):
+            verdict = "[blocked: cookie banner first]"
         elements.append(f"[{e.id}] {e.role} {_untrusted(e.name)!r}{marks} {verdict}")
     more = "\n(element list truncated)" if obs.elements_truncated else ""
     return (f"<page>\n<new_text>\n{text}\n</new_text>\n<elements>\n" + "\n".join(elements) + more

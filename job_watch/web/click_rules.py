@@ -198,3 +198,13 @@ def check(control: Control, purpose: Purpose, page_host: str, acceptance_fallbac
     if not acceptance_fallback:
         return Refusal(reason="acceptance_not_allowed", detail="refusal not tried or did not break the list")
     return None
+
+
+def acceptance_pending(controls: list[Control], page_host: str, acceptance_fallback: bool) -> bool:
+    """True when cookie acceptance is allowed and a banner control the rules accept for it is shown.
+
+    In that state every other click is refused: the banner is handled first, whatever the
+    agent prefers (a refused banner that stays open can cover or reset the list).
+    """
+    return acceptance_fallback and any(
+        check(control, "cookie_acceptance", page_host, acceptance_fallback) is None for control in controls)

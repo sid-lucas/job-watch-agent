@@ -170,7 +170,9 @@ def test_acceptance_fallback_after_a_refusal_that_breaks_the_list(site):
         assert result.clicked and result.acceptance_fallback
         assert result.url_after.endswith("/broken.html")
         assert {"cookie_refusal_failed", "returned_to_start"} <= set(kinds(s))
-        assert s.click(find(s.observe(), "Accept all").id, "cookie_acceptance").clicked
+        obs = s.observe()
+        assert s.click(find(obs, "Next").id, "pagination").reason == "cookie_banner_first"
+        assert s.click(find(obs, "Accept all").id, "cookie_acceptance").clicked
         assert "cookie_accepted" in kinds(s)
         obs = s.observe()
         assert "Broken Offer A" in obs.text and not any(e.in_consent for e in obs.elements)

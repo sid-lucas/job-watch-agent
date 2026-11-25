@@ -176,3 +176,12 @@ def test_known_gap_filter_without_keyword_or_aria():
     and step 4 stops when a click brings no new offers.
     """
     assert check(button("Location"), "pagination", site_host(LO)) is None
+
+
+def test_acceptance_pending_needs_the_fallback_and_an_acceptance_control():
+    from job_watch.web.click_rules import acceptance_pending
+    accept = Control(tag="button", role="button", text="Accept all", name="Accept all", in_consent=True)
+    nxt = Control(tag="a", role="link", text="Next", name="Next", href="https://jobs.example.com/list?page=2")
+    assert acceptance_pending([nxt, accept], "jobs.example.com", True)
+    assert not acceptance_pending([nxt, accept], "jobs.example.com", False)
+    assert not acceptance_pending([nxt], "jobs.example.com", True)

@@ -2,8 +2,8 @@
 import pytest
 
 from job_watch.list_agent import tools
-from job_watch.list_agent.tools import element_verdict
-from job_watch.web.session import Element
+from job_watch.list_agent.tools import element_verdict, format_observation
+from job_watch.web.session import Element, Observation
 
 HOST = "jobs.example.com"
 PAGE = f"https://{HOST}/list"
@@ -43,3 +43,17 @@ def robots(monkeypatch):
 ])
 def test_element_verdict(element, fallback, expected):
     assert element_verdict(element, HOST, fallback) == expected
+
+
+def test_only_acceptance_is_allowed_while_it_is_pending():
+    obs = Observation(url=PAGE, title="Jobs", text="", truncated=False, new_text="", new_text_truncated=False,
+                      new_line_count=0, elements_truncated=False, acceptance_fallback=True, elements=[
+                          Element(id=1, tag="a", role="link", text="Next", name="Next", href=PAGE + "?page=2"),
+                          Element(id=2, tag="button", role="button", text="Accept all", name="Accept all",
+                                  in_consent=True)])
+    text = format_observation(obs)
+    assert "[1] link 'Next' [blocked: cookie banner first]" in text
+    assert "[2] button 'Accept all' [cookie banner] [allowed: cookie_acceptance]" in text
+    # Once the banner is gone (no acceptance control), pagination is allowed again
+    obs.elements = obs.elements[:1]
+    assert "[1] link 'Next' [allowed]" in format_observation(obs)

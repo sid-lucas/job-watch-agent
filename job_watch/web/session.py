@@ -20,11 +20,11 @@ from pydantic import BaseModel
 from job_watch import config
 from job_watch.web import access
 from job_watch.web.browser import LOAD_WAIT_MS, PAGE_TIMEOUT_MS, RENDER_WAIT_MS
-from job_watch.web.click_rules import Control, Purpose, Reason, check, site_host
+from job_watch.web.click_rules import Control, Purpose, Reason, acceptance_pending, check, site_host
 from job_watch.web.new_content import new_lines, page_lines
 
 MAX_TEXT_CHARS = 30000      # page text, and new text, kept per observation
-MAX_ELEMENTS = 300          # numbered controls kept per observation, in page order, all frames together
+MAX_ELEMENTS = 1000         # numbered controls kept per observation, in page order, all frames together
 MAX_CLICKS = 30             # clicks per session, refused ones not counted
 CLICK_TIMEOUT_MS = 5000     # a control still covered or hidden after this delay is not clicked
 CONSENT_MAX_CHARS = 5000    # a floating container longer than this is a page layout, not a consent banner
@@ -102,7 +102,7 @@ ELEMENTS_JS = "([attr, max, start]) => {\n" + FACTS_JS + r"""
 
 ONE_ELEMENT_JS = "e => {\n" + FACTS_JS + "\n  return facts(e);\n}"
 
-SessionReason = Literal["stale_id", "budget", "changed", "not_clickable"]
+SessionReason = Literal["stale_id", "budget", "changed", "not_clickable", "cookie_banner_first"]
 
 
 class Element(Control):
@@ -295,7 +295,12 @@ class BrowserSession:
             return self._refused(element_id, purpose, "budget", f"{self.max_clicks} clicks reached", element)
 
         host = site_host(url_before)
-        refusal = check(element, purpose, host, acceptance_fallback=host in self._fallback_hosts)
+        fallback = host in self._fallback_hosts
+        if purpose != "cookie_acceptance" and acceptance_pending([e for e, _ in self._elements.values()], host, fallback):
+            return self._refused(element_id, purpose, "cookie_banner_first",
+                                 "cookie acceptance is allowed and the banner is shown: click its acceptance first",
+                                 element)
+        refusal = check(element, purpose, host, acceptance_fallback=fallback)
         if refusal:
             return self._refused(element_id, purpose, refusal.reason, refusal.detail, element)
 
