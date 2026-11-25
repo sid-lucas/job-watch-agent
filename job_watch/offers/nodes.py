@@ -40,27 +40,37 @@ def html_to_text(html: str) -> str:
     return BeautifulSoup(html, "html.parser").get_text(separator="\n", strip=True)
 
 
+def wants(state: JobState, source: str) -> bool:
+    """True when the run includes this source ("rss" or "career_sites"; both by default)."""
+    return source in state.get("sources", ["rss", "career_sites"])
+
+
 def fetch_rss(state: JobState) -> dict:
     """Node: read the RSS feed and convert each entry to an Offer."""
+    if not wants(state, "rss"):
+        print("fetch_rss: skipped")
+        return {"offers": state.get("offers", [])}
     feed = feedparser.parse(config.FEED_URL)
     fetched = datetime.now(timezone.utc).isoformat()
 
     offers: list[Offer] = []
     for entry in feed.entries:
         position, company = parse_title(entry.title)
+        link = clean_link(entry.link)
         offers.append(Offer(
+            key=storage.rss_key(link),
             title=position,
             company=company,
             location="unknown", # TODO: CHANGE, the RSS feed has no location
             description=html_to_text(entry.get("description", "")),
             source=config.SOURCE_NAME,
-            link=clean_link(entry.link),
+            link=link,
             published=to_iso(entry.get("published", "")),
             fetched=fetched,
         ))
 
     print(f"fetch_rss: {len(offers)} offers")
-    return {"offers": offers}
+    return {"offers": state.get("offers", []) + offers}
 
 
 def filter_keywords(state: JobState) -> dict:
@@ -110,16 +120,20 @@ def apply_flags(state: JobState) -> dict:
 
 
 def deduplicate(state: JobState) -> dict:
-    """Node: remove offers with the same link, or the same company and title."""
+    """Node: remove offers with the same link, or the same company and title.
+
+    An empty link (career-site offer without its own page) never makes two offers equal.
+    """
     seen_links: set[str] = set()
     seen_keys: set[tuple[str, str]] = set()
 
     unique = []
     for offer in state["offers"]:
         key = (offer["company"].lower(), offer["title"].lower())
-        if offer["link"] in seen_links or key in seen_keys:
+        if (offer["link"] and offer["link"] in seen_links) or key in seen_keys:
             continue
-        seen_links.add(offer["link"])
+        if offer["link"]:
+            seen_links.add(offer["link"])
         seen_keys.add(key)
         unique.append(offer)
 
@@ -129,7 +143,7 @@ def deduplicate(state: JobState) -> dict:
 
 def save_results(state: JobState) -> dict:
     """Node: store offers in the local database (already known offers are skipped)."""
-    new_links = storage.save_offers(state["offers"])
-    print(f"save_results: {len(new_links)} new offers stored, "
-          f"{len(state['offers']) - len(new_links)} already known")
-    return {"new_links": new_links}
+    new_offers = storage.save_offers(state["offers"])
+    print(f"save_results: {len(new_offers)} new offers stored, "
+          f"{len(state['offers']) - len(new_offers)} already known")
+    return {"new_offers": new_offers}
