@@ -41,6 +41,17 @@ def structured_llm(schema):
     return runnables[0].with_fallbacks(runnables[1:]) if len(runnables) > 1 else runnables[0]
 
 
+
+def tool_llm(tools: tuple):
+    """Models of the chain, each bound to the given tools, tried in order.
+
+    Binding is done per model before the fallbacks are chained: a fallback model receives
+    the same tool schemas. The answer is an AIMessage; its tool_calls are requests only.
+    """
+    runnables = [_client(provider, model).bind_tools(list(tools)) for provider, model in llm_chain()]
+    return runnables[0].with_fallbacks(runnables[1:]) if len(runnables) > 1 else runnables[0]
+
+
 def call_with_retry(func, *args, attempts: int = 2, wait_seconds: int = 5):
     """Call an LLM function, with one short retry. Return None if every model keeps failing:
     the caller then retries later instead of waiting."""
