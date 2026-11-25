@@ -112,3 +112,27 @@ def test_different_offers_are_never_merged():
     result = deduplicate(offers)
     assert len(result) == 5 and len({o.key for o in result}) == 5
     assert all(o.key.startswith("text:") for o in result)
+
+
+def test_extract_observations_skips_empty_observations_and_counts_failures(monkeypatch):
+    from job_watch.list_agent import extraction
+    from job_watch.list_agent.extraction import ChunkOffer, ChunkOffers, extract_observations
+    from job_watch.web.session import Observation
+
+    def obs(new_text):
+        return Observation(url="https://jobs.example.com/list", title="Jobs", text=new_text, truncated=False,
+                           new_text=new_text, new_text_truncated=False, new_text_full=new_text,
+                           new_line_count=len(new_text.splitlines()), elements_truncated=False, elements=[])
+
+    def fake_extract(company, chunk, elements):
+        if "Broken" in chunk:
+            return None                                     # every model failed
+        return ChunkOffers(offers=[ChunkOffer(title=line, location="unknown", link="", reference="")
+                                   for line in chunk.splitlines()] + [
+                                   ChunkOffer(title="Invented", location="unknown", link="", reference="")])
+
+    monkeypatch.setattr(extraction, "extract_chunk", fake_extract)
+    result = extract_observations("Example", [obs("Analyst\nEngineer"), obs(""), obs("Engineer\nTester"),
+                                              obs("Broken")])
+    assert [o.title for o in result.offers] == ["Analyst", "Engineer", "Tester"]   # "Engineer" seen twice
+    assert (result.chunks, result.failed_chunks, result.dropped) == (3, 1, 2)

@@ -13,7 +13,7 @@ from pydantic import BaseModel, Field
 from job_watch.list_agent.tools import _untrusted
 from job_watch.llm import call_with_retry, structured_llm
 from job_watch.web.click_rules import normalise, site_host
-from job_watch.web.session import Element
+from job_watch.web.session import Element, Observation
 
 CHUNK_CHARS = 8000      # target size of one chunk sent to the extractor
 OVERLAP_LINES = 6       # lines repeated from the end of the previous chunk (an offer spans a few lines)
@@ -232,3 +232,31 @@ def deduplicate(offers: list[CheckedOffer]) -> list[CheckedOffer]:
         if counts[offer.key] > 1:
             offer.key = text_key(offer)
     return result
+
+
+# ---------- a whole run ----------
+
+class Extraction(BaseModel):
+    offers: list[CheckedOffer]  # checked and deduplicated, in page order
+    chunks: int                 # chunks sent to the extractor
+    failed_chunks: int          # every model failed: offers of these chunks are missing
+    dropped: int                # offers answered by the LLM whose title is not in the chunk
+
+
+def extract_observations(company: str, observations: list[Observation]) -> Extraction:
+    """Extract, check and deduplicate the offers of every observation that brought new text."""
+    found: list[CheckedOffer] = []
+    sent = failed = dropped = 0
+    for obs in observations:
+        if not obs.new_line_count:
+            continue
+        for chunk in chunks(obs.new_text_full):
+            sent += 1
+            answer = extract_chunk(company, chunk, obs.elements)
+            if answer is None:
+                failed += 1
+                continue
+            checked = check_offers(chunk, answer, obs.elements, obs.url)
+            dropped += len(answer.offers) - len(checked)
+            found += checked
+    return Extraction(offers=deduplicate(found), chunks=sent, failed_chunks=failed, dropped=dropped)

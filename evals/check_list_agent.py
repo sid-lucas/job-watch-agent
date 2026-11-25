@@ -1,9 +1,11 @@
 """Measure offer collection on job lists checked by hand (evals/cases/list_agent.json).
 
-The runner is swappable: today the baseline (current extractor on page 1 only), later the agent.
-One LLM call per case for the baseline. No Serper credits are used.
+Two runners: the baseline (previous extractor on page 1 only, one LLM call per case) and the
+agent (navigation by the list agent, then extraction of every observation by the code).
+No Serper credits are used.
 
-    python -m evals.check_list_agent                       # every case
+    python -m evals.check_list_agent                       # every case, baseline
+    python -m evals.check_list_agent --runner agent        # every case, agent
     python -m evals.check_list_agent --list watchmakers    # one company list
     python -m evals.check_list_agent --case UBS            # one case
 """
@@ -19,6 +21,8 @@ from typing import Literal
 
 from pydantic import BaseModel, ConfigDict, Field, model_validator
 
+from job_watch.list_agent.extraction import extract_observations
+from job_watch.list_agent.run import pages_reached, run_list_agent
 from job_watch.llm import call_with_retry
 from job_watch.offers.extract import MAX_CHARS, ListedOffer, extract_offers
 from job_watch.web.browser import render_page
@@ -75,6 +79,8 @@ class RunResult(BaseModel):
     llm_calls: int
     stop_reason: str
     more_pages: bool | None = None
+    verified: int | None = None         # agent runner: offers whose link is verified in the page
+    failed_chunks: int | None = None    # agent runner: chunks for which every model failed
 
 
 Runner = Callable[[ListCase], RunResult | None]
@@ -92,6 +98,27 @@ def baseline_runner(case: ListCase) -> RunResult | None:
         return None
     return RunResult(offers=answer.offers, seen_text=page["text"], pages_reached=1, llm_calls=1,
                      stop_reason="first page only", more_pages=answer.more_pages)
+
+
+def agent_runner(case: ListCase) -> RunResult | None:
+    """List agent (navigation), then extraction of every observation with new text by the code."""
+    run = run_list_agent(case.url, case.company)
+    if not run.observations:
+        print(f"SKIP  {case.company:22} {run.stop}")
+        return None
+    extraction = extract_observations(case.company, run.observations)
+    return RunResult(
+        offers=[ListedOffer(title=o.title, location=o.location, link=o.link) for o in extraction.offers],
+        seen_text="\n".join(obs.new_text_full for obs in run.observations),
+        pages_reached=pages_reached(run.trail),
+        llm_calls=run.llm_calls + extraction.chunks,
+        stop_reason=run.stop,
+        verified=sum(o.verified for o in extraction.offers),
+        failed_chunks=extraction.failed_chunks,
+    )
+
+
+RUNNERS = {"baseline": baseline_runner, "agent": agent_runner}
 
 
 # ---------- Metrics ----------
@@ -134,6 +161,8 @@ class CaseMetrics(BaseModel):
     llm_calls: int
     stop_reason: str
     more_pages: bool | None
+    verified: int | None
+    failed_chunks: int | None
     seconds: float
     offers: list[OfferRow]
 
@@ -163,6 +192,8 @@ def measure(case: ListCase, result: RunResult, seconds: float) -> CaseMetrics:
         llm_calls=result.llm_calls,
         stop_reason=result.stop_reason,
         more_pages=result.more_pages,
+        verified=result.verified,
+        failed_chunks=result.failed_chunks,
         seconds=round(seconds, 1),
         offers=rows,
     )
@@ -177,7 +208,9 @@ def print_case(m: CaseMetrics, verbose: bool = False) -> None:
     print(f"      {m.company:22} offers {m.unique:4}/{expected:>4} ({pct(m.completeness)})  "
           f"dup {m.found - m.unique:2}  grounded {pct(m.grounded)}  links {m.with_link:4}  "
           f"samples {m.samples_found}/{m.samples_total} (p1 {m.samples_page1_found}/{m.samples_page1_total})  "
-          f"pages {m.pages_reached}  llm {m.llm_calls}  more_pages {m.more_pages}  {m.seconds}s  [{m.stop_reason}]")
+          f"pages {m.pages_reached}  llm {m.llm_calls}  more_pages {m.more_pages}  "
+          + (f"verified {m.verified}/{m.unique}  failed chunks {m.failed_chunks}  " if m.verified is not None else "")
+          + f"{m.seconds}s  [{m.stop_reason}]")
     if verbose:
         for row in m.offers:
             if not row.grounded:
@@ -197,12 +230,15 @@ def print_summary(metrics: list[CaseMetrics], skipped: int) -> None:
               f"grounded {pct(sum(grounded) / len(grounded) if grounded else None)}  "
               f"samples {sum(m.samples_found for m in group)}/{sum(m.samples_total for m in group)}  "
               f"duplicates {sum(m.found - m.unique for m in group)}  "
-              f"llm calls {sum(m.llm_calls for m in group)}  {sum(m.seconds for m in group):.0f}s")
+              f"llm calls {sum(m.llm_calls for m in group)}  {sum(m.seconds for m in group):.0f}s"
+              + (f"  verified {sum(m.verified for m in group)}/{sum(m.unique for m in group)}"
+                 if all(m.verified is not None for m in group) else ""))
     print(f"skipped: {skipped}")
 
 
-def main(runner: Runner = baseline_runner) -> None:
+def main() -> None:
     parser = argparse.ArgumentParser()
+    parser.add_argument("--runner", choices=sorted(RUNNERS), default="baseline")
     parser.add_argument("--list", choices=["banks_security", "watchmakers"])
     parser.add_argument("--case", help="company name of a single case")
     parser.add_argument("--verbose", action="store_true", help="print the titles that are not grounded")
@@ -214,7 +250,7 @@ def main(runner: Runner = baseline_runner) -> None:
     metrics, skipped = [], 0
     for case in cases:
         start = time.perf_counter()
-        result = runner(case)
+        result = RUNNERS[args.runner](case)
         if result is None:
             skipped += 1
             continue
