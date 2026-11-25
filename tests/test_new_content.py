@@ -51,3 +51,13 @@ def test_removed_lines_add_nothing():
 
 def test_page_lines_drops_blank_lines_and_spaces():
     assert page_lines("  a \n\n\t\n b") == ["a", "b"]
+
+
+def test_first_changed_on_a_growing_list():
+    from job_watch.web.new_content import first_changed
+    before = ["menu", "offer 1", "offer 2", "Next", "footer"]
+    after = ["menu", "offer 1", "offer 2", "offer 3", "offer 4", "Next", "footer"]
+    assert first_changed(before, after) == 3
+    assert first_changed(before, before) is None
+    assert first_changed(before, ["menu", "Next", "footer"]) is None     # removals only
+    assert first_changed([], after) == 0

@@ -119,7 +119,13 @@ def format_observation(obs: Observation) -> str:
     # Same state check as session.click(): while acceptance is pending, only acceptance is allowed
     pending = acceptance_pending(obs.elements, host, obs.acceptance_fallback)
     elements = []
-    for e in obs.elements:
+    # Unchanged elements above the first changed one are not repeated, except cookie banner controls
+    hidden = sum(1 for e in obs.elements[:obs.changed_from] if not e.in_consent)
+    if hidden:
+        elements.append(f"({hidden} unchanged elements above, not repeated)")
+    for position, e in enumerate(obs.elements):
+        if position < obs.changed_from and not e.in_consent:
+            continue
         marks = "".join(mark for mark, on in ((" [cookie banner]", e.in_consent), (" [current]", e.aria_current),
                                               (" [disabled]", e.disabled)) if on)
         verdict = element_verdict(e, host, obs.acceptance_fallback)

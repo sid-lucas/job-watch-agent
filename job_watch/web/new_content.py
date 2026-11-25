@@ -35,3 +35,16 @@ def new_lines(before: list[str], after: list[str], min_equal_run: int = MIN_EQUA
         else:
             regions.append([start, end])
     return [line for start, end in regions for line in after[start:end]]
+
+
+def first_changed(before: list, after: list) -> int | None:
+    """Position in `after` of the first item that is new or changed compared to `before`.
+
+    Items are compared by value (hashable), in page order. None when `after` brings nothing
+    new (same items, or only removals).
+    """
+    matcher = SequenceMatcher(None, before, after, autojunk=False)
+    for tag, _, _, start, end in matcher.get_opcodes():
+        if tag != "equal" and start < end:
+            return start
+    return None

@@ -57,3 +57,27 @@ def test_only_acceptance_is_allowed_while_it_is_pending():
     # Once the banner is gone (no acceptance control), pagination is allowed again
     obs.elements = obs.elements[:1]
     assert "[1] link 'Next' [allowed]" in format_observation(obs)
+
+
+def test_unchanged_elements_above_the_first_change_are_not_repeated():
+    from job_watch.web.session import changed_from
+    offers = [link(f"Offer {n}", f"{PAGE}/offer{n}") for n in range(1, 4)]
+    nxt = link("Next >", PAGE + "#more")
+    banner = button("Decline", in_consent=True)
+
+    def obs(elements, url=PAGE):
+        numbered = [e.model_copy(update={"id": i}) for i, e in enumerate(elements, 1)]
+        return Observation(url=url, title="Jobs", text="", truncated=False, new_text="", new_text_truncated=False,
+                           new_line_count=0, elements_truncated=False, elements=numbered)
+
+    first = obs([banner, *offers[:2], nxt])
+    second = obs([banner, *offers, nxt])
+    second.changed_from = changed_from(first, PAGE, second.elements)
+    assert second.changed_from == 3          # "Offer 3", ids renumbered do not count as changes
+    text = format_observation(second)
+    assert "(2 unchanged elements above, not repeated)" in text
+    assert "'Offer 1'" not in text and "'Offer 3'" in text
+    assert "'Next ›'" in text and "'Decline'" in text      # after the change, and the banner
+    assert changed_from(first, PAGE + "?page=2", second.elements) == 0      # other URL: show all
+    assert changed_from(second, PAGE, second.elements) == 0                 # nothing changed: show all
+    assert changed_from(None, PAGE, second.elements) == 0

@@ -21,10 +21,10 @@ from job_watch import config
 from job_watch.web import access
 from job_watch.web.browser import LOAD_WAIT_MS, PAGE_TIMEOUT_MS, RENDER_WAIT_MS
 from job_watch.web.click_rules import Control, Purpose, Reason, acceptance_pending, check, site_host
-from job_watch.web.new_content import new_lines, page_lines
+from job_watch.web.new_content import first_changed, new_lines, page_lines
 
 MAX_TEXT_CHARS = 30000      # page text, and new text, kept per observation
-MAX_ELEMENTS = 1000         # numbered controls kept per observation, in page order, all frames together
+MAX_ELEMENTS = 3000         # numbered controls collected per observation, in page order, all frames together
 MAX_CLICKS = 30             # clicks per session, refused ones not counted
 CLICK_TIMEOUT_MS = 5000     # a control still covered or hidden after this delay is not clicked
 CONSENT_MAX_CHARS = 5000    # a floating container longer than this is a page layout, not a consent banner
@@ -129,6 +129,26 @@ class Observation(BaseModel):
     elements_truncated: bool
     iframes: list[FrameReport] = []
     acceptance_fallback: bool = False   # cookie acceptance already allowed on this host (a refusal failed)
+    # Elements before this position are unchanged since the previous observation of the same URL
+    # (0: show all). Display only: every id stays valid for click().
+    changed_from: int = 0
+
+
+def _facts(element: Element) -> tuple:
+    """Comparable facts of an element, without its id (ids are renumbered at each observation)."""
+    return tuple(element.model_dump(exclude={"id"}).values())
+
+
+def changed_from(previous: "Observation | None", url: str, elements: list[Element]) -> int:
+    """Position of the first new or changed element, when the rest of the page is unchanged.
+
+    0 (everything is shown) on the first observation, after a URL change (fragment ignored),
+    and when no element is new or changed: the agent can then try any control again.
+    """
+    if previous is None or _without_fragment(previous.url) != _without_fragment(url):
+        return 0
+    position = first_changed([_facts(e) for e in previous.elements], [_facts(e) for e in elements])
+    return position or 0
 
 
 class ClickResult(BaseModel):
@@ -246,6 +266,7 @@ class BrowserSession:
             elements_truncated=truncated,
             iframes=iframes,
             acceptance_fallback=site_host(self.page.url) in self._fallback_hosts,
+            changed_from=changed_from(self.last_observation, self.page.url, [element for element, _ in elements]),
         )
         self._elements = {element.id: (element, frame) for element, frame in elements}
         self.last_observation = observation
