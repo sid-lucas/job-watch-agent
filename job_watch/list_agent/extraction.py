@@ -4,13 +4,15 @@ The code, not the agent, decides what is extracted: every observation that broug
 text. The full new text (Observation.new_text_full) is cut into chunks small enough for the
 extractor to list every offer.
 """
+import hashlib
+import re
 import unicodedata
 
 from pydantic import BaseModel, Field
 
 from job_watch.list_agent.tools import _untrusted
 from job_watch.llm import call_with_retry, structured_llm
-from job_watch.web.click_rules import normalise
+from job_watch.web.click_rules import normalise, site_host
 from job_watch.web.session import Element
 
 CHUNK_CHARS = 8000      # target size of one chunk sent to the extractor
@@ -103,6 +105,7 @@ class CheckedOffer(BaseModel):
     link: str           # href of an element of the observation, or ""
     reference: str      # found in the chunk, or ""
     verified: bool      # the link is the href of an element whose text or name contains the title
+    key: str = ""       # set by deduplicate(): stable across runs, from page data only
 
 
 def _fold(text: str) -> tuple[str, list[int]]:
@@ -139,9 +142,15 @@ def find_in(text: str, value: str) -> str | None:
     return text[positions[start]:positions[start + len(folded_value) - 1] + 1]
 
 
-def check_offers(chunk: str, answer: ChunkOffers, elements: list[Element]) -> list[CheckedOffer]:
-    """Keep only what the page supports. An offer whose title is not in the chunk is dropped."""
-    hrefs = {e.href for e in elements if e.href}
+def check_offers(chunk: str, answer: ChunkOffers, elements: list[Element], page_url: str) -> list[CheckedOffer]:
+    """Keep only what the page supports. An offer whose title is not in the chunk is dropped.
+
+    A link is kept only if it is the href of an element of the observation, on the same site
+    as the list page (same rule as for clicks: an "Apply for <title>" link to another site
+    must not become the link of the offer).
+    """
+    host = site_host(page_url)
+    hrefs = {e.href for e in elements if e.href and site_host(e.href) == host}
     checked = []
     for offer in answer.offers:
         title = find_in(chunk, offer.title)
@@ -156,3 +165,70 @@ def check_offers(chunk: str, answer: ChunkOffers, elements: list[Element]) -> li
         checked.append(CheckedOffer(title=title, location=location or "unknown", link=link,
                                     reference=reference, verified=verified))
     return checked
+
+
+# ---------- offer key and duplicates ----------
+
+REFERENCE_TOKEN = re.compile(r"[\w-]*\d[\w-]*")
+
+
+def reference_key(reference: str) -> str:
+    """Longest word of the reference that holds a digit, letters and digits only ('Ref. SEC-101' -> 'sec101')."""
+    tokens = REFERENCE_TOKEN.findall(_fold(reference)[0])
+    return re.sub(r"[\W_]", "", max(tokens, key=len)) if tokens else ""
+
+
+def offer_key(offer: CheckedOffer) -> str:
+    """Reference with a digit, else verified link (without fragment), else a hash of title and location."""
+    if ref := reference_key(offer.reference):
+        return f"ref:{ref}"
+    if offer.verified:
+        return "url:" + offer.link.split("#", 1)[0]
+    return text_key(offer)
+
+
+def text_key(offer: CheckedOffer) -> str:
+    identity = f"{_fold(offer.title)[0]}|{_fold(offer.location)[0]}"
+    return "text:" + hashlib.sha256(identity.encode()).hexdigest()[:16]
+
+
+def _merge(into: CheckedOffer, other: CheckedOffer) -> None:
+    """Complete an offer with what a copy of it adds."""
+    if other.verified and not into.verified:
+        into.link, into.verified = other.link, True
+    into.link = into.link or other.link
+    into.reference = into.reference or other.reference
+    if into.location == "unknown":
+        into.location = other.location
+
+
+def deduplicate(offers: list[CheckedOffer]) -> list[CheckedOffer]:
+    """Merge copies of the same offer (same title and location, or same title with one location
+    unknown), then give each offer a unique key. Two different titles are never merged."""
+    merged: dict[tuple[str, str], CheckedOffer] = {}
+    for offer in offers:
+        identity = (_fold(offer.title)[0], _fold(offer.location)[0])
+        if identity in merged:
+            _merge(merged[identity], offer)
+        else:
+            merged[identity] = offer.model_copy()
+
+    # A copy cut by the chunking has its location unknown: merge it into the only known one
+    result = list(merged.values())
+    for offer in [o for o in result if o.location == "unknown"]:
+        same_title = [o for o in result if o is not offer and o.location != "unknown"
+                      and _fold(o.title)[0] == _fold(offer.title)[0]]
+        if len(same_title) == 1:
+            _merge(same_title[0], offer)
+            result.remove(offer)
+
+    for offer in result:
+        offer.key = offer_key(offer)
+    # Different offers on one key (a shared reference or link): the key is not their own
+    counts: dict[str, int] = {}
+    for offer in result:
+        counts[offer.key] = counts.get(offer.key, 0) + 1
+    for offer in result:
+        if counts[offer.key] > 1:
+            offer.key = text_key(offer)
+    return result

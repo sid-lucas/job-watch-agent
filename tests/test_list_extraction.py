@@ -70,3 +70,45 @@ def test_find_in_ignores_case_accents_and_spaces_and_returns_the_page_text():
     assert find_in("Responsable d’équipe", "responsable d'equipe") == "Responsable d’équipe"
     assert find_in("Data Analyst", "Data Scientist") is None
     assert find_in("Data Analyst", "  ") is None
+
+
+def checked(title, location="unknown", link="", reference="", verified=False):
+    from job_watch.list_agent.extraction import CheckedOffer
+    return CheckedOffer(title=title, location=location, link=link, reference=reference, verified=verified)
+
+
+def test_reference_key_keeps_the_part_with_a_digit():
+    from job_watch.list_agent.extraction import reference_key
+    assert reference_key("Ref. SEC-101") == reference_key("SEC-101") == "sec101"
+    assert reference_key("Req 12345") == "12345"
+    assert reference_key("Full-time") == ""
+
+
+def test_key_order_reference_then_verified_link_then_text():
+    from job_watch.list_agent.extraction import offer_key
+    link = "https://jobs.example.com/offer/1#apply"
+    assert offer_key(checked("Analyst", reference="Ref. 77", link=link, verified=True)) == "ref:77"
+    assert offer_key(checked("Analyst", link=link, verified=True)) == "url:https://jobs.example.com/offer/1"
+    assert offer_key(checked("Analyst", link=link)).startswith("text:")       # unverified link: not a key
+    assert offer_key(checked("Ingénieur", "Genève")) == offer_key(checked("INGENIEUR", "geneve"))
+
+
+def test_copies_of_one_offer_are_merged():
+    from job_watch.list_agent.extraction import deduplicate
+    offers = [checked("Cloud Engineer", "Zurich"),
+              checked("Cloud Engineer", "Zurich", "https://jobs.example.com/2", verified=True),   # next observation
+              checked("Data Analyst"),                                                          # cut by a chunk
+              checked("Data Analyst", "Lausanne", reference="Req 3")]
+    result = deduplicate(offers)
+    assert [(o.title, o.location, o.key) for o in result] == [
+        ("Cloud Engineer", "Zurich", "url:https://jobs.example.com/2"), ("Data Analyst", "Lausanne", "ref:3")]
+
+
+def test_different_offers_are_never_merged():
+    from job_watch.list_agent.extraction import deduplicate
+    offers = [checked("Client Advisor", "Geneva"), checked("Client Advisor", "Zurich"),
+              checked("Client Advisor"),                                   # two known locations: not merged
+              checked("Analyst", reference="2024"), checked("Engineer", reference="2024")]   # shared reference
+    result = deduplicate(offers)
+    assert len(result) == 5 and len({o.key for o in result}) == 5
+    assert all(o.key.startswith("text:") for o in result)

@@ -31,7 +31,7 @@ def main():
         for offer in answer.offers:
             print(f"  {offer.title[:70]!r} | {offer.location[:30]} | {offer.reference or '-'} | {offer.link or '-'}")
         print("kept by the checks:")
-        for offer in check_offers(part, answer, obs.elements):
+        for offer in check_offers(part, answer, obs.elements, obs.url):
             status = "verified  " if offer.verified else "unverified"
             print(f"  {status} {offer.title[:70]!r} | {offer.location[:30]} | {offer.reference or '-'} | "
                   f"{offer.link or '-'}")

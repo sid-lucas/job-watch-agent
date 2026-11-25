@@ -343,9 +343,12 @@ def test_extracted_offers_are_checked_against_the_page(site):
         offer("Data Analyst", "Lausanne", f"{base}/offer2a.html?id=3"),
         offer("Office Manager", "Bern"),
         offer("CISO", link="https://evil.example/ciso"),
+        offer("CISO", link="https://evil.example/apply"),    # "Postuler pour CISO": contains the title, other site
         offer("Chief Hacker", "Geneva", f"{base}/offer2a.html"),
     ])
-    checked = {o.title: o for o in check_offers(obs.new_text_full, answer, obs.elements)}
+    result = check_offers(obs.new_text_full, answer, obs.elements, obs.url)
+    assert [o.link for o in result if o.title == "CISO"] == ["", ""]      # both injected links emptied
+    checked = {o.title: o for o in result}
 
     assert "Chief Hacker" not in checked                                    # not in the page: dropped
     engineer = checked["Ingénieur Sécurité (h/f)"]                          # exact page text kept
