@@ -1,4 +1,5 @@
-"""Run the list agent on one job list and print every node update (navigation only, no extraction).
+"""Run the list agent on one job list and print every node update (navigation only, no extraction),
+then a summary: LLM calls and tokens, clicks, refusals, new lines per observation, stop reason.
 
     python -m scripts.try_list_agent URL [COMPANY]
 """
@@ -30,6 +31,28 @@ def show(node: str, update: dict) -> None:
             print(f"[{node}] {key} = {update[key]}")
 
 
+def summary(session, answers: list, stop: str) -> None:
+    trail = session.trail
+    clicks = [e.detail for e in trail if e.kind in ("click", "cookie_accepted")]
+    refused = [e.detail for e in trail if e.kind == "click_refused"]
+    navigation_refused = [e.detail for e in trail if e.kind == "navigation_refused"]
+    observes = [e.detail.split(", ")[2] for e in trail if e.kind == "observe"]
+    tokens = [a.usage_metadata["input_tokens"] for a in answers if a.usage_metadata]
+    print("\n=== summary")
+    print(f"stop: {stop}")
+    print(f"llm calls: {len(answers)}, input tokens: total {sum(tokens)}, last call {tokens[-1] if tokens else 0}")
+    print(f"clicks ({len(clicks)}):")
+    for detail in clicks:
+        print(f"  {detail[:110]}")
+    print(f"clicks refused ({len(refused)}):")
+    for detail in refused:
+        print(f"  {detail[:110]}")
+    print(f"navigations refused ({len(navigation_refused)}):")
+    for detail in navigation_refused:
+        print(f"  {detail[:110]}")
+    print(f"new lines per observation: {observes}")
+
+
 def main():
     if len(sys.argv) not in (2, 3):
         sys.exit(__doc__)
@@ -39,17 +62,19 @@ def main():
             app = build_graph(make_tools(session))
             state = initial_state(company, url)
             state["messages"] = [HumanMessage(content=f"Company: {company}. Read its job list.")]
+            answers, stop = [], "no tool call"
             try:
                 for chunk in app.stream(state, {"recursion_limit": RECURSION_LIMIT}, stream_mode="updates"):
                     for node, update in chunk.items():
                         print()
                         show(node, update)
+                        answers += [m for m in update.get("messages", []) if m.type == "ai"]
+                        stop = update.get("stop_reason") or stop
+                        stop = next((f"finish: {m.content}" for m in update.get("messages", [])
+                                     if m.type == "tool" and m.name == "finish"), stop)
             except GraphRecursionError:
-                print(f"\nstopped by recursion_limit={RECURSION_LIMIT}")
-            print("\nbrowser trail:")
-            for event in session.trail:
-                if event.kind != "navigation_allowed":
-                    print(f"  {event.seconds:6}s {event.kind:22} {event.detail[:100]}")
+                stop = f"recursion_limit={RECURSION_LIMIT}"
+            summary(session, answers, stop)
     except SessionError as error:
         sys.exit(f"session error: {error}")
 

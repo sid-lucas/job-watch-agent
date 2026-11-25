@@ -352,7 +352,7 @@ class BrowserSession:
     # ---------- guards ----------
 
     def _guard(self, route: Route, request: Request) -> None:
-        """Check every document request before it leaves the browser."""
+        """Check every document request before it leaves the browser; refused ones get a local 204."""
         if request.resource_type != "document":
             route.continue_()
             return
@@ -370,7 +370,9 @@ class BrowserSession:
             reason = "robots.txt or blocked domain"
         if reason:
             self._log("navigation_refused", f"{frame} {request.method} {request.url} ({reason})")
-            route.abort()
+            # Answered locally, nothing leaves the browser. 204 No Content keeps the current page
+            # (route.abort() would show a browser error page and end the session)
+            route.fulfill(status=204)
         else:
             self._log("navigation_allowed", f"{frame} {request.url}")
             route.continue_()

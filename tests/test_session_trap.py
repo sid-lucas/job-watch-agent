@@ -124,7 +124,7 @@ def test_robots_disallowed_navigation_is_refused(site):
     with session(base, "list1.html") as s:
         result = s.click(find(s.observe(), "Next", "/private/list2.html").id, "pagination")
         assert result.clicked and result.navigation_refused
-        assert "/private/" not in result.url_after    # aborted: the page shows a browser error, the agent stops
+        assert result.url_after.endswith("/list1.html")     # local 204: the page is kept
 
 
 def test_post_navigation_is_refused(site):
@@ -135,10 +135,19 @@ def test_post_navigation_is_refused(site):
         assert any("method POST" in event.detail for event in s.trail)
 
 
-def test_popup_to_another_host_is_closed(site):
+def test_popup_to_another_host_is_refused(site):
     base, _ = site
     with session(base, "list1.html") as s:
         assert s.click(find(s.observe(), "Load more").id, "pagination").clicked
+        assert any(e.kind == "navigation_refused" and "/popup.html" in e.detail for e in s.trail)
+        assert len(s._context.pages) == 1       # with the local 204, Chromium does not even open it
+
+
+def test_same_site_popup_is_closed(site):
+    base, _ = site
+    with session(base, "list1.html") as s:
+        s.page.evaluate("window.open('/list2.html')")
+        s.page.wait_for_timeout(FAST_RENDER_MS)
         assert "popup_closed" in kinds(s)
         assert len(s._context.pages) == 1
 
@@ -253,3 +262,17 @@ def test_session_thread_accepts_calls_from_other_threads(site):
             assert workers.submit(s.click, element.id, "pagination").result().clicked
             assert "Trap Offer 2-A" in workers.submit(s.observe).result().new_text
         assert "click" in [event.kind for event in s.trail]
+
+
+@pytest.mark.parametrize("trap", ["More results",     # POST form
+                                  "Load more"])       # popup to another host
+def test_real_next_still_works_after_a_javascript_trap(site, trap):
+    base, _ = site
+    with session(base, "list1.html") as s:
+        result = s.click(find(s.observe(), trap).id, "pagination")
+        assert result.clicked and result.url_after.endswith("/list1.html")
+        assert result.navigation_refused
+        obs = s.observe()
+        assert "Trap Offer 1-A" in obs.text
+        assert s.click(find(obs, "Next", "/list2.html", target=None).id, "pagination").clicked
+        assert "Trap Offer 2-A" in s.observe().new_text
