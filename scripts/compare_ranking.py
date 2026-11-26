@@ -1,14 +1,15 @@
 """Score stored offers with the criteria of user_config.py and compare with their stored score (read only).
 
-One LLM call per offer (DETAIL_CHAIN); nothing is written to the database. With --answers, the
-checked answers are saved to a JSON file after each offer and reused on the next run while the
-questions are the same: a run stopped halfway resumes, and a change of points, groups or code
-criteria needs no LLM call (--no-llm). Keep that file out of the repository (scratchpad, or data/).
+One LLM call per offer (DETAIL_CHAIN); nothing is written to the database. The raw answers of the
+LLM are saved after each offer (data/criteria_answers.json by default, next to the database, out of
+the repository) and reused on the next run while the questions are the same: they are checked
+again by the code each time. A run stopped halfway resumes, and a change of points, groups, code
+criteria or of the checks needs no LLM call (--no-llm).
 
     python -u -m scripts.compare_ranking --limit 3                  # the 3 best stored scores
     python -u -m scripts.compare_ranking --limit 3 --source career_site
-    python -u -m scripts.compare_ranking --all --answers data/criteria_answers.json
-    python -u -m scripts.compare_ranking --all --answers data/criteria_answers.json --no-llm
+    python -u -m scripts.compare_ranking --all
+    python -u -m scripts.compare_ranking --all --no-llm
 """
 import argparse
 import json
@@ -19,8 +20,8 @@ from pathlib import Path
 from job_watch import config
 from job_watch.list_agent.detail import date_stated
 from job_watch.offers import storage
-from job_watch.offers.ask_criteria import OfferInput, answer_offer
-from job_watch.offers.criteria import CheckedAnswer, Verdict, judge
+from job_watch.offers.ask_criteria import OfferInput, answer_offer, check_offer
+from job_watch.offers.criteria import Answer, CheckedAnswer, Verdict, judge
 from job_watch.offers.nodes import without_board_salary
 
 TOP = 10
@@ -49,8 +50,8 @@ def offer_input(offer: dict) -> tuple[OfferInput, bool]:
                       location=offer.get("city") or offer.get("location") or "", ad=ad), full_ad
 
 
-def load_saved(path: Path | None) -> dict:
-    return json.loads(path.read_text(encoding="utf-8")) if path and path.exists() else {}
+def load_saved(path: Path) -> dict:
+    return json.loads(path.read_text(encoding="utf-8")) if path.exists() else {}
 
 
 def label(offer: dict) -> str:
@@ -70,11 +71,10 @@ def main():
     parser.add_argument("--limit", type=int, default=3, help="number of offers, best stored scores first")
     parser.add_argument("--all", action="store_true", help="every stored offer, kept or rejected")
     parser.add_argument("--source", help="only this source (career_site, swissdevjobs)")
-    parser.add_argument("--answers", type=Path, help="JSON file of the checked answers (saved, then reused)")
+    parser.add_argument("--answers", type=Path, default=config.DB_PATH.parent / "criteria_answers.json",
+                        help="JSON file of the raw answers, saved then reused (default: %(default)s)")
     parser.add_argument("--no-llm", action="store_true", help="only the saved answers, no LLM call")
     args = parser.parse_args()
-    if args.no_llm and not args.answers:
-        parser.error("--no-llm needs --answers")
 
     conn = sqlite3.connect(f"file:{config.DB_PATH}?mode=ro", uri=True)
     conn.row_factory = sqlite3.Row
@@ -98,16 +98,18 @@ def main():
         offer = storage.row_to_offer(row)
         name = f"{offer['company']}|{offer['key']}"
         entry = saved.get(name)
-        if entry and [a["ask"] for a in entry["checked"]] == asks:     # same questions: same answers
-            checked, answered, reused = [CheckedAnswer(**a) for a in entry["checked"]], True, reused + 1
+        query, full_ad = offer_input(offer)
+        if entry and entry.get("asks") == asks:         # same questions: same raw answers, checked again
+            raw = [Answer(**a) for a in entry["answers"]]
+            checked, reused = check_offer(settings, query, full_ad, raw), reused + 1
         elif args.no_llm:
             continue
         else:
-            query, full_ad = offer_input(offer)
-            checked, answered = answer_offer(settings, query, full_ad=full_ad)
-            if answered and args.answers:       # a failed call is not saved: the next run asks again
-                saved[name] = {"checked": [a.model_dump() for a in checked]}
+            checked, raw = answer_offer(settings, query, full_ad=full_ad)
+            if raw is not None:                 # a failed call is not saved: the next run asks again
+                saved[name] = {"asks": asks, "answers": [a.model_dump() for a in raw]}
                 args.answers.write_text(json.dumps(saved, ensure_ascii=False, indent=1), encoding="utf-8")
+        answered = raw is not None
         if not answered:
             failed.append(offer)
         verdict = judge(settings, checked, offer["company"], posted_date(offer), today)

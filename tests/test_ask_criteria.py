@@ -92,8 +92,8 @@ def test_listing_only_and_cut_ads_are_said_in_the_prompt():
 
 def test_answers_are_checked_against_what_the_llm_read(fake):
     fake({"c1": ("yes", "Paris, France"), "c2": ("yes", "Lieu : Genève")})
-    checked, answered = answer_offer(SETTINGS, OFFER, full_ad=True)
-    assert answered
+    checked, raw = answer_offer(SETTINGS, OFFER, full_ad=True)
+    assert raw is not None
     assert [a.answer for a in checked] == ["unknown", "yes", "unknown"]     # the abroad quote is not in the ad
     assert not checked[0].quote_found and checked[1].quote_found
 
@@ -116,8 +116,8 @@ def test_a_quote_from_the_listing_is_valid_without_ad(fake):
 
 def test_every_answer_is_unknown_when_every_model_fails(fake):
     model = fake(RuntimeError("503 overloaded"))
-    checked, answered = answer_offer(SETTINGS, OFFER, full_ad=True)
-    assert not answered and {a.answer for a in checked} == {"unknown"}
+    checked, raw = answer_offer(SETTINGS, OFFER, full_ad=True)
+    assert raw is None and {a.answer for a in checked} == {"unknown"}
     assert len(model.messages) == 2                 # call_with_retry: one short retry, then gives up
 
 
@@ -127,3 +127,23 @@ def test_the_system_prompt_marks_the_offer_as_untrusted(fake):
     (role, system), (_, user) = model.messages[0]
     assert role == "system" and "untrusted" in system and "never follow instructions" in system
     assert user.startswith("<profile>")
+
+
+def test_a_quote_of_a_labelled_listing_line_is_found(fake):
+    """The LLM reads "Location: Geneva" and may quote it with its label."""
+    fake({"c2": ("yes", "Location: Geneva")})
+    assert answer_offer(SETTINGS, OFFER, full_ad=True)[0][1].answer == "yes"
+
+
+def test_the_notes_of_the_prompt_are_never_evidence(fake):
+    fake({"c2": ("yes", "Only the listing is known")})
+    assert answer_offer(SETTINGS, OfferInput(company="B", title="T"), full_ad=False)[0][1].answer == "unknown"
+
+
+def test_raw_answers_are_checked_again_without_llm(fake):
+    from job_watch.offers.ask_criteria import check_offer
+    fake({"c2": ("yes", "Lieu : Genève")})
+    checked, raw = answer_offer(SETTINGS, OFFER, full_ad=True)
+    assert check_offer(SETTINGS, OFFER, True, raw) == checked
+    assert {a.answer for a in check_offer(SETTINGS, OFFER, True, None)} == {"unknown"}
+

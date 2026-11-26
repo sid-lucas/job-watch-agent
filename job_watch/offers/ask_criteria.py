@@ -60,9 +60,23 @@ def ad_text(offer: OfferInput) -> tuple[str, bool]:
     return offer.ad[:MAX_AD_CHARS], len(offer.ad) <= MAX_AD_CHARS
 
 
+def _listing(offer: OfferInput) -> str:
+    """The listing lines of the offer, exactly as sent to the LLM."""
+    return (f"Company: {_untrusted(offer.company)}\nTitle: {_untrusted(offer.title)}\n"
+            f"Location: {_untrusted(offer.location) or 'unknown'}")
+
+
 def checked_text(offer: OfferInput) -> str:
-    """The text a quote must be found in: everything the LLM read about the offer."""
-    return "\n".join((offer.company, offer.title, offer.location, ad_text(offer)[0]))
+    """The text a quote must be found in: the offer exactly as the LLM read it (listing lines with
+    their labels, then the ad), without the notes of the prompt itself."""
+    return f"{_listing(offer)}\n{_untrusted(ad_text(offer)[0])}"
+
+
+def full_read(offer: OfferInput, full_ad: bool) -> bool:
+    """detail_read of the checks: the caller knows the text is the whole ad (the offer page was
+    read, not a summary), and it was sent without being cut."""
+    ad, complete = ad_text(offer)
+    return full_ad and bool(ad.strip()) and complete
 
 
 def user_prompt(settings: Settings, offer: OfferInput) -> str:
@@ -76,8 +90,7 @@ def user_prompt(settings: Settings, offer: OfferInput) -> str:
         body = f"<ad>\n{_untrusted(ad)}{note}\n</ad>"
     return (f"<profile>\n{settings.profile}\n</profile>\n\n"
             f"<questions>\n{questions}\n</questions>\n\n"
-            f"<offer>\nCompany: {_untrusted(offer.company)}\nTitle: {_untrusted(offer.title)}\n"
-            f"Location: {_untrusted(offer.location) or 'unknown'}\n{body}\n</offer>")
+            f"<offer>\n{_listing(offer)}\n{body}\n</offer>")
 
 
 def ask_criteria(settings: Settings, offer: OfferInput) -> list[Answer] | None:
@@ -90,13 +103,19 @@ def ask_criteria(settings: Settings, offer: OfferInput) -> list[Answer] | None:
     return [Answer(id=name, answer=value.answer, quote=value.quote) for name, value in reply]
 
 
-def answer_offer(settings: Settings, offer: OfferInput, full_ad: bool) -> tuple[list[CheckedAnswer], bool]:
-    """Checked answers of one offer, and whether the LLM answered (False: every answer is unknown).
+def check_offer(settings: Settings, offer: OfferInput, full_ad: bool, answers: list[Answer] | None
+                ) -> list[CheckedAnswer]:
+    """Checked answers from raw answers (None: the LLM did not answer, every answer is unknown).
+    Raw answers can be stored and checked again later, without any LLM call."""
+    return check_answers(settings, answers or [], checked_text(offer), full_read(offer, full_ad))
+
+
+def answer_offer(settings: Settings, offer: OfferInput, full_ad: bool
+                 ) -> tuple[list[CheckedAnswer], list[Answer] | None]:
+    """Checked answers of one offer, and the raw answers of the LLM (None when every model failed).
 
     full_ad: the caller knows the ad text is the whole ad (the offer page was read), not a summary.
     Absence criteria count only then, and only when the ad was sent without being cut.
     """
     answers = ask_criteria(settings, offer)
-    ad, complete = ad_text(offer)
-    detail_read = full_ad and bool(ad.strip()) and complete
-    return check_answers(settings, answers or [], checked_text(offer), detail_read), answers is not None
+    return check_offer(settings, offer, full_ad, answers), answers
