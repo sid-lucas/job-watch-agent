@@ -27,6 +27,7 @@ API keys go in a `.env` file at the project root (not committed):
 ```
 SERPER_API_KEY=...
 GEMINI_API_KEY=...
+MISTRAL_API_KEY=...     # optional: Mistral is skipped in the LLM chain without it
 ```
 
 ## Project structure
@@ -75,6 +76,7 @@ python -m scripts.build_registry       # search the career sites of new target c
 python -m scripts.resolve_registry     # propose a job list URL for each company (rules + headless browser)
 python -m scripts.verify_registry      # confirm the job lists with the LLM page judge (Gemini calls)
 python -m scripts.show_registry        # overview of the registry (read only)
+python -m scripts.add_registry_entry "COMPANY" URL   # add a known job list (robots.txt + page judge, no Serper)
 ```
 
 `python -m evals.check_page_judge` runs the judge on pages verified by hand.
