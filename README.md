@@ -14,7 +14,7 @@ pip install -r requirements.txt
 playwright install chromium
 ```
 
-Personal settings (keywords, target companies, aliases, company domains, scoring rules):
+Personal settings (target companies, aliases, company domains, dealbreakers and bonuses):
 
 ```bash
 cp user_config.example.py user_config.py
@@ -63,11 +63,13 @@ LLM_ONLY=ollama python main.py ...     # local model only (Gemini quota exhauste
 ```
 
 Career sites (V1.2): for each registry company with status `ok`, an LLM agent walks the job list
-(pagination and cookie banners only, guardrails in code), the code extracts and checks the offers,
-stores every listed offer in `listed_offers`, keeps the IT offers that are not clearly abroad, opens
-their pages (detail: requirements, contract, workload, languages, date), then they follow the V1
-funnel into the `offers` table. One company at a time: `python -u -m scripts.collect_career_site
-COMPANY URL --db /tmp/try.db --details`.
+(pagination and cookie banners only, guardrails in code), the code extracts and checks the offers and
+stores every listed offer in `listed_offers`. New offers are triaged (domain, kind of IT job), the
+dealbreakers known from the list are applied, the pages of the kept ones are opened (fact sheet:
+city, seniority, experience, languages, contract, degree...), then every offer, RSS included, is
+judged by the same rules and stored in `offers`, rejected ones with their reasons. The titles set
+aside before the detail are listed at the end of the run. One company at a time, nothing written:
+`python -u -m scripts.collect_career_site COMPANY URL --db /tmp/try.db --details`.
 
 Career sites registry, in order:
 
@@ -81,7 +83,8 @@ python -m scripts.add_registry_entry "COMPANY" URL   # add a known job list (rob
 
 `python -m evals.check_page_judge` runs the judge on pages verified by hand.
 
-Rules (keywords, companies, aliases, reject and score rules) are set in `user_config.py`.
+Companies, aliases and the rules (`DEALBREAKERS`, `BONUSES`) are set in `user_config.py`; see the commented example in `user_config.example.py`.
+`python -m scripts.rescore [--db PATH] [--dry-run]` applies changed rules to the stored offers, without any LLM call.
 
 ## Ideas
 
@@ -93,8 +96,8 @@ Rules (keywords, companies, aliases, reject and score rules) are set in `user_co
 - Remove offers already seen
 
 ### Scoring
-- Red flags that remove an offer (e.g. senior/management title, ad written in German)
-- Green flags that raise the score (e.g. junior/graduate, Geneva or Zurich, top company)
+- The LLM states facts (domain, kind of IT job, seniority, languages, contract...), checked in code; it never scores
+- The code applies the user's dealbreakers and bonuses to these facts, with the reasons shown
 - Matching against local documents (CV, letters, transcripts) with a local LLM only
 - Score with the reasons behind it
 
@@ -119,7 +122,7 @@ Rules (keywords, companies, aliases, reject and score rules) are set in `user_co
 Sources (career sites, RSS, e-mails) → filter → merge duplicates → flags → verify → AI matching → save → notify → human review
 ```
 
-- **V1 (done):** swissdevjobs RSS, keyword filter, deduplication, red/green flags, SQLite storage
+- **V1 (done):** swissdevjobs RSS, deduplication, rules and score, SQLite storage
 - **V1.1 (done):** registry of the target companies' job lists (web search, rules, headless browser, LLM page judge, robots.txt check)
 - **V1.2 (in progress, end to end):** read the job lists of the registered career sites (LLM agent for navigation, extraction and checks in code, detail pages), as the main source of offers
 - **V1.3:** verify offers from other sources against the career sites (registry lookup, or on-demand search for unknown companies)

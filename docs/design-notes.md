@@ -5,7 +5,7 @@ How things work and why they were built this way. Unordered notes, updated along
 ## Configuration
 
 - `job_watch/config.py`: technical settings (paths, models, web access), committed.
-- `user_config.py`: personal settings (keywords, companies, aliases, company domains, scoring rules), not committed. Each user has their own; `user_config.example.py` is the template.
+- `user_config.py`: personal settings (companies, aliases, company domains, dealbreakers and bonuses), not committed. Each user has their own; `user_config.example.py` is the template.
 - `config.py` re-exports the personal settings, so the rest of the code only imports `config`. A missing `user_config.py` stops the program with a clear message; a missing variable raises an import error naming it.
 
 ## Project layout
@@ -16,12 +16,15 @@ How things work and why they were built this way. Unordered notes, updated along
 - Everything runs from the project root (`python main.py`, `python -m scripts.<name>`, `python -m evals.<name>`), so imports work without `sys.path` changes.
 - `tests/`: unit and end-to-end tests run with pytest, without LLM or network (`python -m pytest`). `tests/trap_site/` is a local trap website used to prove the browser guardrails.
 
-## Filtering and scoring (V1)
+## Facts, rules and score
 
-- Funnel: cheap rules first (keywords, reject rules, score rules), LLM later on the remaining offers only.
-- False negatives cost more than false positives: a rule only rejects obvious cases.
-- German ads detected by the ratio of German stopwords (threshold 0.08, chosen from the observed distribution).
-- SQLite with `INSERT OR IGNORE` on the link: an offer is stored once, later runs never overwrite it.
+Principle: the LLM reads and states facts, the code applies the user's rules. The LLM never sees the preferences and never gives a score.
+- Facts, from closed lists and checked in code: the triage (domain, kind of IT job, on title, location and company, for RSS and career-site offers alike), then the detail fact sheet of career-site offers (city, country, seniority, years of experience required or preferred, languages required or a plus, contract, workload, salary, degree level, ad language). A fact the page does not support is unknown: city, country, workload and salary must be copied from the page; seniority, contract and degree need a word of that level in the page; years need the number next to a word for years; the level of a language, or of years, is read in the words of the same clause (or line). Seniority also comes from the words of the title when the page says nothing; the ad language of a description from its German stopwords (threshold 0.08).
+- Rules (`offers/rules.py`): `DEALBREAKERS` and `BONUSES` in `user_config.py` (defaults in `config.py`), each one fact, one operator (is, in, not_in, contains, above, below, matches, in_names). The kept domains (`KEPT_DOMAINS`) are the first dealbreaker. Rules are validated when read (unknown fact, missing operator, bad regular expression).
+- An unknown fact never rejects an offer and never gives points (false negatives cost more than false positives).
+- Dealbreakers run as soon as their facts are known: on the listing facts after the triage (the detail page of a rejected offer is not opened), then on all the facts before storage. Score = sum of the bonuses that apply, each shown with its points.
+- Rejected offers stay in the database with their reasons (`offers.status`, `listed_offers.reject_reason`). `scripts/rescore.py` applies changed rules to the stored facts, without any LLM call.
+- SQLite, primary key (company, key): an offer is stored once, later runs never overwrite it (except rescore).
 
 ## Career sites registry (V1.1)
 
@@ -112,9 +115,9 @@ Pipeline (`main.py`, node `fetch_career_sites` in the V1 graph, after `fetch_rss
 1. Navigation: the list agent walks the pages (above). Budgets in code (`config.py`), whatever the agent decides: at most `AGENT_MAX_LLM_CALLS` agent turns (stop `llm_budget`), and a stop after `AGENT_MAX_CLICKS_WITHOUT_NEW_CONTENT` pagination clicks in a row whose observation brings no line seen in no earlier observation of the run (stop `no_new_content`: going back and forth between pages already read counts as nothing new). LangGraph's `recursion_limit` stays above them as a safety net.
 2. Extraction, triggered by the code on every observation with new text, outside the agent conversation: full new text cut into overlapping chunks, one structured LLM call per chunk. Checks in code: title found in the chunk (exact page text kept), location and reference found or emptied, link only if it is the href of an element of the observation on the list's registrable domain; "verified" when that element's text or name contains the title. Offer key: reference with a digit, else verified link, else hash of title and location; copies merged, two different titles never.
 3. `listed_offers` (primary key company, key): every offer seen, first_seen / last_seen, kept by the filter or not. Written by `save_results` in the same transaction as `offers`, at the end of the run: an offer is never marked as seen without being stored.
-4. Triage of the new offers (title, location, company; `TRIAGE_CHAIN`, local model first; batch size per provider, `TRIAGE_BATCH_SIZE`), from coarse to fine: one of 10 domains (closed list with a short description each), then a kind of IT job only for Technology/IT (`offers/triage.py`), checked in code. "Other" only when the title gives no clue. The LLM never sees preferences. Filter in code: kept domains (`KEPT_DOMAINS`: Technology/IT; an offer without a valid answer is kept) and location not clearly abroad (funnel: a lost offer costs more than an extra one).
+4. Triage of the new offers (title, location, company; `TRIAGE_CHAIN`, cloud models first; batch size per provider, `TRIAGE_BATCH_SIZE`), from coarse to fine: one of 10 domains (closed list with a short description each), then a kind of IT job only for Technology/IT (`offers/triage.py`), checked in code. "Other" only when the title gives no clue. The LLM never sees preferences. When in doubt between Technology/IT and another domain, the LLM is told to choose Technology/IT. Then the dealbreakers on the listing facts (kept domains `KEPT_DOMAINS`: Technology/IT and Other; an offer without a valid answer is kept).
 5. Detail phase on the new offers kept: own link on the list's domain, not shared by other offers, at most `MAX_DETAIL_PAGES`, a pause between pages; one observation per page, no click; the page is accepted only if it contains the title. Structured extraction checked in code: requirements and workload quoted from the page, closed lists for contract and languages (contract emptied when no word of it is in the page), plausible date. Raw page text kept for V2.
-6. V1 funnel: keywords, duplicates, flags and score (same rules as RSS), table `offers` (primary key company, key; RSS key `url:<link>`, a V1 table is migrated in place), display. An offer without detail is stored and scored on title, company and location.
+6. Rules and storage: duplicates, dealbreakers and bonuses on all the facts (same engine as RSS offers), table `offers` (primary key company, key; RSS key `url:<link>`, a V1 table is migrated in place, fact columns added), display. An offer without detail is judged on the facts of the list.
 A company that fails is logged and skipped.
 
 Known limitations:
@@ -123,9 +126,12 @@ Known limitations:
 - At most 3000 elements are collected per observation; the agent sees only those from the first new or changed one.
 - On a growing list whose pagination sits above the offers and never changes, that pagination is hidden from the agent.
 - The new text sent to the agent is cut at 30000 characters.
+- A small local model misses IT offers with ambiguous titles (Business Analyst, ERP engineer, IT controller): false negatives, the most costly error of the funnel. The triage chain starts with cloud models, and the titles set aside are listed at the end of each run.
 - An offer stays in the database when it leaves the list: nothing marks it as closed yet.
 - The forbidden-action words cover four languages; other languages rely on the other guardrails (forms, navigation interception).
 - On a shared applicant tracking system domain, an offer link to another company on the same domain is accepted; the detail page must still contain the offer title.
+- A fact read by words (seniority, contract, degree, level of a language) can be wrong when the page also lists other offers or uses a word in another sense; a town missing from the place lists is unknown, never abroad.
+- A listed offer that a changed rule keeps again has no detail (it was set aside before the detail phase): rescore reports it, it is not fetched.
 - Detail extraction: a value quoted from an injection in the page (a requirement, a contract word) passes the checks; it stays data, with no effect on what the program does.
 
 ## LLM usage
