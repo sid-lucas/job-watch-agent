@@ -9,6 +9,7 @@ title, company and location.
 A company that fails is logged and skipped: the others are still collected. Nothing is
 written here: save_results stores the offers and listed_offers together, at the end.
 """
+import difflib
 import traceback
 from datetime import datetime, timezone
 
@@ -27,6 +28,26 @@ def registry_companies(registry: dict, only: list[str] | None = None) -> list[tu
     return [(company, entry["jobs_url"]) for company, entry in registry.items()
             if entry.get("status") == "ok" and entry.get("jobs_url")
             and (wanted is None or company.casefold() in wanted)]
+
+
+def why_not_collected(registry: dict, requested: list[str]) -> list[str]:
+    """One line per requested company that registry_companies() leaves out, with the reason."""
+    by_name = {name.casefold(): name for name in registry}
+    lines = []
+    for wanted in requested:
+        name = by_name.get(wanted.casefold())
+        if name is None:
+            keys = difflib.get_close_matches(wanted.casefold(), list(by_name), n=3, cutoff=0.6)
+            keys += [k for k in by_name if wanted.casefold() in k and k not in keys]     # "Rolex" in "Rolex SA"
+            hint = f"; close names: {', '.join(by_name[k] for k in keys[:3])}" if keys else ""
+            lines.append(f"{wanted}: not in the registry{hint}")
+            continue
+        entry = registry[name]
+        if entry.get("status") != "ok":
+            lines.append(f"{name}: registry status {entry.get('status')!r} (only 'ok' is collected)")
+        elif not entry.get("jobs_url"):
+            lines.append(f"{name}: no jobs_url in the registry")
+    return lines
 
 
 def to_offers(collection: CompanyCollection, details: DetailCollection, fetched: str) -> list[Offer]:
@@ -56,8 +77,11 @@ def fetch_career_sites(state: JobState) -> dict:
     if not wants(state, "career_sites"):
         print("fetch_career_sites: skipped")
         return {"offers": offers}
-    companies = registry_companies(load_registry(), state.get("companies"))
+    registry = load_registry()
+    companies = registry_companies(registry, state.get("companies"))
     print(f"fetch_career_sites: {len(companies)} companies", flush=True)
+    for line in why_not_collected(registry, state.get("companies") or []):
+        print(f"  not collected: {line}", flush=True)
     fetched = datetime.now(timezone.utc).isoformat()
     collections = list(state.get("collections", []))
     conn = connect_listed()

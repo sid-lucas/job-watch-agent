@@ -160,3 +160,28 @@ def test_listed_offers_are_written_only_with_the_offers(monkeypatch):
     assert known_keys(conn, "Bank") == {"a"}
     conn.close()
     assert save_collection is not None
+
+
+def test_why_a_requested_company_is_not_collected():
+    registry = {"Lombard Odier": {"status": "ok", "jobs_url": "https://lo.example/jobs"},
+                "ICRC": {"status": "ok", "jobs_url": "https://icrc.example/jobs"},
+                "Banque Cantonale Vaudoise": {"status": "blocked", "jobs_url": "https://bcv.example/jobs"},
+                "Hublot": {"status": "ok", "jobs_url": None},
+                "Rolex SA": {"status": "not_found", "jobs_url": None}}
+    lines = career_sites.why_not_collected(
+        registry, ["lombard odier", "Rolex", "Banque Cantonale Vaudoise", "Hublot", "Lombard Odiers", "Patek"])
+    assert lines == [
+        "Rolex: not in the registry; close names: Rolex SA",
+        "Banque Cantonale Vaudoise: registry status 'blocked' (only 'ok' is collected)",
+        "Hublot: no jobs_url in the registry",
+        "Lombard Odiers: not in the registry; close names: Lombard Odier",
+        "Patek: not in the registry",
+    ]
+
+
+def test_the_node_prints_why_a_company_is_not_collected(capsys):
+    config.REGISTRY_PATH.write_text(json.dumps({"ICRC": {"status": "blocked", "jobs_url": "https://icrc.example"}}))
+    career_sites.fetch_career_sites({"offers": [], "sources": ["career_sites"], "companies": ["ICRC", "Rolex"]})
+    out = capsys.readouterr().out
+    assert "fetch_career_sites: 0 companies" in out
+    assert "not collected: ICRC: registry status 'blocked'" in out and "not collected: Rolex: not in the registry" in out
