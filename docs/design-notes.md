@@ -5,8 +5,8 @@ How things work and why they were built this way. Unordered notes, updated along
 ## Configuration
 
 - `job_watch/config.py`: technical settings (paths, models, web access), committed.
-- `user_config.py`: personal settings (companies, aliases, company domains, dealbreakers and bonuses), not committed. Each user has their own; `user_config.example.py` is the template.
-- `config.py` re-exports the personal settings, so the rest of the code only imports `config`. A missing `user_config.py` stops the program with a clear message; a missing variable raises an import error naming it.
+- `user_config.py`: personal settings (companies, aliases, company domains, profile, criteria), not committed. Each user has their own; `user_config.example.py` is the template.
+- `config.py` re-exports the personal settings, so the rest of the code only imports `config`. A missing `user_config.py` stops the program with a clear message; a missing variable raises an import error naming it. `PROFILE`, `CRITERIA` and `CODE_CRITERIA` are validated at import (`offers/criteria.py`, Pydantic): missing "ask", both "reject" and "points", "group" or "absence" on a reject criterion, unknown key or code criterion type, the same question twice; each problem is one line naming the criterion.
 
 ## Project layout
 
@@ -20,7 +20,7 @@ How things work and why they were built this way. Unordered notes, updated along
 
 Principle: the LLM reads and states facts, the code applies the user's rules. The LLM never sees the preferences and never gives a score.
 - Facts, from closed lists and checked in code: the triage (domain, kind of IT job, on title, location and company, for RSS and career-site offers alike), then the detail fact sheet of career-site offers (city, country, seniority, years of experience required or preferred, languages required or a plus, contract, workload, salary, degree level, ad language). A fact the page does not support is unknown: city, country, workload and salary must be copied from the page; seniority, contract and degree need a word of that level in the page; years need the number next to a word for years; the level of a language, or of years, is read in the words of the same clause (or line). Seniority also comes from the words of the title when the page says nothing; the ad language of a description from its German stopwords (threshold 0.08).
-- Rules (`offers/rules.py`): `DEALBREAKERS` and `BONUSES` in `user_config.py` (defaults in `config.py`), each one fact, one operator (is, in, not_in, contains, above, below, matches, in_names). The kept domains (`KEPT_DOMAINS`) are the first dealbreaker. Rules are validated when read (unknown fact, missing operator, bad regular expression).
+- Rules (`offers/rules.py`): `DEALBREAKERS` and `BONUSES` of `config.py` (to be replaced by the criteria of `user_config.py`), each one fact, one operator (is, in, not_in, contains, above, below, matches, in_names). The kept domains (`KEPT_DOMAINS`) are the first dealbreaker. Rules are validated when read (unknown fact, missing operator, bad regular expression).
 - An unknown fact never rejects an offer and never gives points (false negatives cost more than false positives).
 - Dealbreakers run as soon as their facts are known: on the listing facts after the triage (the detail page of a rejected offer is not opened), then on all the facts before storage. Score = sum of the bonuses that apply, each shown with its points.
 - Rejected offers stay in the database with their reasons (`offers.status`, `listed_offers.reject_reason`). `scripts/rescore.py` applies changed rules to the stored facts, without any LLM call.

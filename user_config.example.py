@@ -21,35 +21,31 @@ COMPANY_ALIASES = {}
 # Short description of a company, for names shared with other organisations (used by the page judge)
 COMPANY_CONTEXT = {}
 
-# Rules on the facts of an offer, applied by code only (never sent to an LLM). Without these two
-# lists, the defaults of job_watch/config.py apply. A rule tests one fact with one operator:
-#   is, in, not_in, contains (list facts), above, below (numbers), matches (regular expression),
-#   in_names (whole names, e.g. companies).
-# Facts (job_watch/offers/rules.py, FACTS): domain, category, secondary_category, title, company, source,
-#   location (switzerland/abroad/unknown), city, country, seniority (graduate/junior/mid/senior/lead),
-#   experience_years, experience_years_required, languages_required, languages_nice (en/fr/de/it),
-#   contract (permanent/fixed_term/internship/apprenticeship), workload, salary,
-#   education (CFC/ES/HES-university), ad_language.
-# An unknown fact never rejects an offer and never gives points. Run `python -m scripts.rescore`
-# after a change: rejections and scores are computed again without any LLM call.
-#
-# SECURITY = ["Cybersecurity SOC/incident response", "Cybersecurity GRC/risk/compliance",
-#             "Cybersecurity engineering/architecture/pentest", "AI security"]
-#
-# DEALBREAKERS = [
-#     {"name": "abroad", "fact": "location", "is": "abroad"},
-#     {"name": "senior level", "fact": "seniority", "in": ["senior", "lead"]},
-#     {"name": "German required", "fact": "languages_required", "contains": "de"},
-#     {"name": "more than 5 years required", "fact": "experience_years_required", "above": 5},
-#     {"name": "ad in German", "fact": "ad_language", "is": "de"},
-# ]
-#
-# BONUSES = [
-#     {"name": "security job", "fact": "category", "in": SECURITY, "points": 30},
-#     {"name": "AI/ML job", "fact": "category", "is": "AI/ML/data science", "points": 30},
-#     {"name": "entry level", "fact": "seniority", "in": ["graduate", "junior"], "points": 30},
-#     {"name": "target city", "fact": "city", "matches": r"gen[eè]v|geneva|genf|lausanne", "points": 20},
-#     {"name": "top company", "fact": "company", "in_names": TOP_COMPANIES, "points": 20},
-#     {"name": "good company", "fact": "company", "in_names": GOOD_COMPANIES, "points": 10},
-#     {"name": "internship", "fact": "contract", "is": "internship", "points": -10},
-# ]
+# Short text about you, given to the LLM as context when it answers the criteria. It is sent to
+# cloud models: keep it short and never put personal documents (CV, letters) in it.
+PROFILE = "Recent graduate in computer science, looking for an entry-level IT job."
+
+# Questions answered by the LLM for each offer: yes, no or unknown, with a quote of the ad as evidence
+# (a "yes" whose quote is not found in the ad counts as unknown). Each one has either "reject": True
+# (a "yes" rejects the offer) or "points": N. Criteria sharing a "group" are exclusive: only the best
+# "yes" of the group counts. "absence": True: the answer is the absence of something in the ad, so a
+# "yes" needs no quote; it counts only when the full ad was read. Unknown never rejects, never gives points.
+# Write every instruction in the question itself: comments are never sent to the LLM.
+CRITERIA = [
+    {"ask": "Is the job located outside Switzerland?", "reject": True},
+    {"ask": "Is it a senior, lead or principal position?", "reject": True},
+    {"ask": "Is the job about cybersecurity?", "points": 30, "group": "job type"},
+    {"ask": "Is the job about software development?", "points": 20, "group": "job type"},
+    {"ask": "Is the position explicitly junior, graduate or entry-level?", "points": 20},
+    {"ask": "Does the full ad mention no experience requirement at all?", "points": 10, "absence": True},
+    {"ask": "Is the job in Geneva or Lausanne?", "points": 15},
+    {"ask": "Is it an internship?", "points": -10},
+]
+
+# Criteria checked by code, without any LLM: "company_in" (whole names, case-insensitive) and
+# "posted_older_than_days". Same "reject" / "points" / "group" keys as CRITERIA.
+CODE_CRITERIA = [
+    {"type": "company_in", "names": TOP_COMPANIES, "points": 20, "group": "company"},
+    {"type": "company_in", "names": GOOD_COMPANIES, "points": 10, "group": "company"},
+    {"type": "posted_older_than_days", "days": 30, "points": -5},
+]

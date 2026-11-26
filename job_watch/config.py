@@ -8,10 +8,14 @@ except ModuleNotFoundError:
 from user_config import (
     MIN_SCORE, MAX_DISPLAY, MIN_VERIFY_SCORE, MAX_VERIFY_PER_RUN,
     TOP_COMPANIES, GOOD_COMPANIES, COMPANY_ALIASES, COMPANY_DOMAINS, COMPANY_CONTEXT,
+    PROFILE, CRITERIA, CODE_CRITERIA,
 )
+from job_watch.offers.criteria import load_settings
 
-# Rules applied by code to the facts of an offer (offers/rules.py), never sent to an LLM.
-# user_config.py may define DEALBREAKERS and BONUSES; otherwise these defaults apply.
+# Criteria of the user, validated at startup (a problem stops the program with a clear message)
+SETTINGS = load_settings(PROFILE, CRITERIA, CODE_CRITERIA)
+
+# Rules applied by code to the facts of an offer (offers/rules.py), until the criteria above replace them.
 SECURITY_CATEGORIES = ["Cybersecurity SOC/incident response", "Cybersecurity GRC/risk/compliance",
                        "Cybersecurity engineering/architecture/pentest", "AI security"]
 DEFAULT_DEALBREAKERS = [
@@ -25,8 +29,8 @@ DEFAULT_BONUSES = [
     {"name": "top company", "fact": "company", "in_names": TOP_COMPANIES, "points": 20},
     {"name": "good company", "fact": "company", "in_names": GOOD_COMPANIES, "points": 10},
 ]
-DEALBREAKERS = getattr(user_config, "DEALBREAKERS", DEFAULT_DEALBREAKERS)
-BONUSES = getattr(user_config, "BONUSES", DEFAULT_BONUSES)
+DEALBREAKERS = DEFAULT_DEALBREAKERS
+BONUSES = DEFAULT_BONUSES
 
 # Paths
 BASE_DIR = Path(__file__).parent.parent

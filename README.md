@@ -83,7 +83,7 @@ python -m scripts.add_registry_entry "COMPANY" URL   # add a known job list (rob
 
 `python -m evals.check_page_judge` runs the judge on pages verified by hand.
 
-Companies, aliases and the rules (`DEALBREAKERS`, `BONUSES`) are set in `user_config.py`; see the commented example in `user_config.example.py`.
+Companies, aliases, your profile and your criteria (`PROFILE`, `CRITERIA`, `CODE_CRITERIA`) are set in `user_config.py`; see `user_config.example.py`. They are checked at startup: a problem stops the program with a message naming the criterion.
 `python -m scripts.rescore [--db PATH] [--dry-run]` applies changed rules to the stored offers, without any LLM call.
 
 ## Ideas

@@ -149,15 +149,3 @@ def test_kept_follows_the_listing_rejections():
     assert kept(offer)
     offer.rejected_by = ["rejected: abroad (location='abroad')"]
     assert not kept(offer)
-
-
-def test_the_commented_rules_of_the_example_config_are_valid():
-    """The DEALBREAKERS / BONUSES example of user_config.example.py, uncommented, passes validation."""
-    from pathlib import Path
-    lines = Path(config.BASE_DIR / "user_config.example.py").read_text().splitlines()
-    start = next(i for i, line in enumerate(lines) if line.startswith("# SECURITY ="))
-    code = "\n".join(line.removeprefix("# ").removeprefix("#") for line in lines[start:])
-    namespace = {"TOP_COMPANIES": ["Example Bank"], "GOOD_COMPANIES": ["Example Consulting"]}
-    exec(code, namespace)
-    assert [Rule(**rule) for rule in namespace["DEALBREAKERS"]]
-    assert all(Rule(**rule).points is not None for rule in namespace["BONUSES"])
