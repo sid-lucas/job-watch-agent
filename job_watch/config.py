@@ -20,6 +20,7 @@ REGISTRY_PATH = BASE_DIR / "data" / "career_sites.json"
 LLM_CHAIN = [
     ("gemini", "gemini-3.5-flash-lite"),
     ("gemini", "gemini-3.1-flash-lite"),
+    ("mistral", "mistral-small-latest"),    # tool calling; ignored without MISTRAL_API_KEY
     ("ollama", "qwen3:8b"),
 ]
 OLLAMA_NUM_CTX = 24576   # context size in tokens; fits a 30000-character page in 11 GB of VRAM

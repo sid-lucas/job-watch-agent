@@ -137,7 +137,8 @@ Known limitations:
 - Structured output with Pydantic schemas: answers are typed and checked in code.
 - Two judges: `page_judge` (is this page a job list?, V1.1) and `offer_judge` (does this offer still exist?, V1.3).
 - LLM chain (`LLM_CHAIN` in `config.py`): Gemini models first, local `qwen3:8b` (Ollama) as last resort when the cloud is overloaded. `LLM_ONLY=ollama` runs a script with the local model only.
-- Timeouts per request: 30 s for Gemini, 180 s for Ollama (last model, slow on long pages). A Gemini model that answers with a quota error (429) is skipped for the rest of the run. Calls answered, failed and skipped are counted per model and reported by the evals.
+- LLM chain: Gemini, then Mistral (`mistral-small-latest`, tool calling; left out when `MISTRAL_API_KEY` is not set), then Ollama. Timeouts per request: 30 s Gemini, 60 s Mistral, 180 s Ollama (last model, slow on long pages).
+- Rate limits, read from the error (shared LangChain error classes; Google `quotaId` and `retryDelay`, HTTP `Retry-After`): a per-minute limit waits the given delay (at most 60 s) and retries the same model twice; a daily or monthly quota, or a refused key, skips the model for the rest of the run; a 429 that cannot be read is retried once after a short wait, then the model is skipped. Other errors only pass this call to the next model. Calls answered, failed, waited and skipped are counted per model and reported by the evals.
 - Local model measured with the judge eval: 9/10, but it can wrongly answer `owner=no` (stops link following) and infer missing locations. Good enough for extraction, weaker as a judge.
 
 ## Web access and security
