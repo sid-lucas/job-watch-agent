@@ -40,7 +40,7 @@ job_watch/              application code (package)
   judges/               LLM judges (career pages, offers)
   web/                  web access (robots.txt, fetching), headless browser, web search
   config.py, llm.py     technical settings, shared LLM client
-scripts/                entry points for registry building and maintenance, statistics
+scripts/                entry points for registry building and maintenance, rescoring, comparisons
 evals/                  evaluations that call a real LLM (page judge test set)
 docs/                   design notes
 data/                   local database and registry (not committed)

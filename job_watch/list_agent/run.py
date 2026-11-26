@@ -1,6 +1,6 @@
 """Run the list agent on one job list (navigation only) and collect what the run did.
 
-Shared by scripts/try_list_agent.py (prints every node update) and evals/check_list_navigation.py.
+Used by evals/check_list_navigation.py and by the collection of a company (list_agent/collect.py).
 """
 import re
 import time

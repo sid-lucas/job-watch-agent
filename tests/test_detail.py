@@ -45,7 +45,8 @@ def answer(**fields):
 def test_check_detail_keeps_only_what_the_page_supports():
     from datetime import date
     from job_watch.list_agent.detail import check_detail
-    page = "Cloud Engineer\nZurich, 80-100 %\n5 years of experience with Kubernetes\nFluent in German"
+    page = ("Cloud Engineer\nZurich, 80-100 %\n5 years of experience with Kubernetes\nFluent in German\n"
+            "Published on 20.11.2026")
     checked = check_detail("k", page, answer(
         requirements=["5 years of experience with kubernetes", "PhD in physics"],   # second one invented
         workload="80-100 %", posted="2026-11-20",
@@ -64,6 +65,21 @@ def test_invented_workload_and_implausible_dates_are_emptied():
     for posted in ("2027-01-01", "1999-12-31", "20 November 2026", ""):
         assert check_detail("k", "Text", answer(posted=posted, workload="100 %"), today).posted == ""
     assert check_detail("k", "Text", answer(workload="100 %"), today).workload == ""
+
+
+def test_a_date_counts_only_when_the_page_writes_it():
+    """The LLM does not know today's date: from "Posted 13 Days Ago" it invents an absolute date."""
+    from datetime import date
+    from job_watch.list_agent.detail import check_detail, date_stated
+    day = date(2026, 2, 27)
+    for page in ("Posted 2026-02-27", "Publié le 27.02.2026", "27/2/2026", "02/27/2026", "27 February 2026",
+                 "le 27 février 2026", "27. Feb. 2026", "Feb 27th, 2026", "27 febbraio 2026"):
+        assert date_stated(day, page), page
+    for page in ("Posted 13 Days Ago", "2026-02-28", "127.02.2026", "27.02.20260", "27 March 2026", ""):
+        assert not date_stated(day, page), page
+    today = date(2026, 11, 26)
+    assert check_detail("k", "posted on | Posted 13 Days Ago", answer(posted="2026-02-27"), today).posted == ""
+    assert check_detail("k", "Posted 27.02.2026", answer(posted="2026-02-27"), today).posted == "2026-02-27"
 
 
 def test_closed_lists_and_no_score_field():

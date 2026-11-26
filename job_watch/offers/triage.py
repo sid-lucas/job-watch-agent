@@ -9,14 +9,13 @@ code: unknown ids are ignored, the first answer per id wins, a category is kept 
 Technology/IT. An offer without a valid answer has no domain: it is kept (never set aside on a
 fact that is not known).
 """
-import time
 from collections.abc import Callable
 from typing import Literal
 
 from pydantic import BaseModel, Field
 
 from job_watch import config
-from job_watch.offers.criteria import DOMAINS, OTHER, TECHNOLOGY
+from job_watch.offers.criteria import DOMAINS, TECHNOLOGY
 from job_watch.list_agent.tools import _untrusted
 from job_watch.llm import call_with_retry, llm_chain, structured_llm
 
@@ -143,46 +142,3 @@ def triage_offers(offers: list[TriageInput], log: Callable[[str], None] | None =
     size: offers per call for every model instead of TRIAGE_BATCH_SIZE."""
     valid = _triage_with(list(models or llm_chain("triage")), list(enumerate(offers)), size, log)
     return [valid.get(index, Triage(reason="no valid answer")) for index in range(len(offers))]
-
-
-# ---------- comparison of two models ----------
-
-class Disagreement(BaseModel):
-    title: str
-    company: str
-    first: Triage
-    second: Triage
-
-
-class Comparison(BaseModel):
-    offers: int
-    same_domain: int
-    same_keep: int                  # both Technology/IT, or both not
-    other: tuple[int, int]          # "Other" answers of each model
-    no_answer: tuple[int, int]      # offers without a valid answer, for each model
-    disagreements: list[Disagreement]   # Technology/IT for one model, not for the other
-
-
-def compare(offers: list[TriageInput], first: list[Triage], second: list[Triage]) -> Comparison:
-    """Agreement of two triages of the same offers; disagreements on what would be kept only."""
-    pairs = list(zip(offers, first, second))
-
-    def tech(t: Triage) -> bool:
-        return t.domain == TECHNOLOGY
-
-    return Comparison(
-        offers=len(pairs),
-        same_domain=sum(a.domain == b.domain for _, a, b in pairs),
-        same_keep=sum(tech(a) == tech(b) for _, a, b in pairs),
-        other=(sum(a.domain == OTHER for a in first), sum(b.domain == OTHER for b in second)),
-        no_answer=(sum(not a.answered for a in first), sum(not b.answered for b in second)),
-        disagreements=[Disagreement(title=o.title, company=o.company, first=a, second=b)
-                       for o, a, b in pairs if tech(a) != tech(b)],
-    )
-
-
-def timed(func, *args, **kwargs):
-    """(result, seconds) of a call."""
-    start = time.monotonic()
-    result = func(*args, **kwargs)
-    return result, time.monotonic() - start

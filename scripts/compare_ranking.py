@@ -10,16 +10,23 @@ import sqlite3
 from datetime import date, datetime
 
 from job_watch import config
+from job_watch.list_agent.detail import date_stated
 from job_watch.offers import storage
 from job_watch.offers.ask_criteria import OfferInput, answer_offer
 from job_watch.offers.criteria import judge
 
 
-def posted_date(published: str) -> date | None:
+def posted_date(offer: dict) -> date | None:
+    """Publication date: from the feed for RSS offers; for career sites, the date of the detail fact
+    sheet only when the stored page text writes it (offers stored before that check may hold an
+    invented date)."""
     try:
-        return datetime.fromisoformat(published).date() if published else None
+        day = datetime.fromisoformat(offer["published"]).date() if offer["published"] else None
     except ValueError:
         return None
+    if day and offer["source"] == "career_site" and not date_stated(day, offer["description"] or ""):
+        return None
+    return day
 
 
 def main():
@@ -43,7 +50,7 @@ def main():
         query = OfferInput(company=offer["company"], title=offer["title"],
                            location=offer.get("city") or offer.get("location") or "", ad=offer["description"] or "")
         checked, answered = answer_offer(settings, query, full_ad=full_ad)
-        verdict = judge(settings, checked, offer["company"], posted_date(offer["published"]), today)
+        verdict = judge(settings, checked, offer["company"], posted_date(offer), today)
 
         print(f"\n[{number}/{len(rows)}] {offer['title'][:70]} @ {offer['company']}  [{offer['source']}]"
               f"  ad: {len(offer['description'] or '')} chars{'' if full_ad else ', not a full ad'}")

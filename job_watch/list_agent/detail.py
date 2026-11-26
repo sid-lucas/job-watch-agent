@@ -159,7 +159,8 @@ class OfferDetail(BaseModel):
     salary: str = Field(description="Salary copied exactly from <page>, or empty if not shown")
     education: Education = Field(description="Degree level asked: CFC (apprenticeship), ES, HES-university")
     ad_language: Language = Field(description="Language the ad is written in")
-    posted: str = Field(description="Publication date as YYYY-MM-DD, or empty if not shown")
+    posted: str = Field(description="Publication date written in the page, as YYYY-MM-DD; empty if the page "
+                                    "shows no date (e.g. only 'posted 3 days ago')")
 
 
 DETAIL_SYSTEM = """You read the page of one job offer and fill its fact sheet.
@@ -299,17 +300,39 @@ class CheckedDetail(BaseModel):
     salary: str
     education: Education
     ad_language: Language
-    posted: str                     # YYYY-MM-DD between 2000-01-01 and today, or ""
+    posted: str                     # YYYY-MM-DD stated in the page, between 2000-01-01 and today, or ""
     dropped_requirements: int       # answered by the LLM but not found in the page
     unchecked: list[str] = []       # facts answered by the LLM that the page did not support
 
 
-def _plausible_date(value: str, today: date) -> str:
+# Month names (folded: no accents, lower case) in EN, FR, DE, IT, as prefixes of the full or short name
+MONTH_PREFIXES = {
+    1: ("jan", "genn"), 2: ("feb", "fev"), 3: ("mar",), 4: ("apr", "avr"), 5: ("may", "mai", "mag"),
+    6: ("jun", "juin", "giu"), 7: ("jul", "juil", "lug"), 8: ("aug", "aou", "ago"), 9: ("sep", "set"),
+    10: ("oct", "okt", "ott"), 11: ("nov",), 12: ("dec", "dez", "dic"),
+}
+
+
+def date_stated(day: date, page_text: str) -> bool:
+    """True when the page writes this date: ISO, day.month.year (. / -), month/day/year, or with the
+    month name (EN, FR, DE, IT). A relative date ("Posted 13 days ago") is not a date of the page."""
+    text = _fold(page_text)[0]
+    d, m, y = rf"0?{day.day}", rf"0?{day.month}", str(day.year)
+    month = rf"(?:{'|'.join(MONTH_PREFIXES[day.month])})[a-z]*\.?"
+    patterns = (rf"{y}-{m}-{d}", rf"{d}[./-]{m}[./-]{y}", rf"{m}/{d}/{y}",
+                rf"{d}(?:st|nd|rd|th|er)?\.?\s*{month},?\s*{y}", rf"{month}\s*{d}(?:st|nd|rd|th)?,?\s*{y}")
+    return any(re.search(rf"(?<![\w-]){pattern}(?![\w-])", text) for pattern in patterns)
+
+
+def _plausible_date(value: str, page_text: str, today: date) -> str:
+    """The date answered by the LLM, only when it is stated in the page and between 2000 and today.
+
+    The LLM does not know today's date: from a relative date it can only invent an absolute one."""
     try:
         day = date.fromisoformat(value.strip())
     except ValueError:
         return ""
-    return day.isoformat() if date(2000, 1, 1) <= day <= today else ""
+    return day.isoformat() if date(2000, 1, 1) <= day <= today and date_stated(day, page_text) else ""
 
 
 def _quoted(page_text: str, value: str, empty: str) -> str:
@@ -348,7 +371,7 @@ def check_detail(key: str, page_text: str, answer: OfferDetail, today: date) -> 
         salary=_quoted(page_text, answer.salary, ""),
         education=education,
         ad_language=answer.ad_language,
-        posted=_plausible_date(answer.posted, today),
+        posted=_plausible_date(answer.posted, page_text, today),
         dropped_requirements=len(answer.requirements[:MAX_REQUIREMENTS]) - len(requirements),
         unchecked=unchecked,
     )
