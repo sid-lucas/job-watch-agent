@@ -1,15 +1,17 @@
 """Compare the triage of the local model (qwen) and Gemini on the titles of a listed_offers table.
 
-The database is opened read only; nothing is written. Gemini calls: one per TRIAGE_BATCH_SIZE titles.
+The database is opened read only; nothing is written. Prints the agreement on the domain and on
+what would be kept (Technology/IT or not), the "Other" answers and offers without a valid answer
+for each model, the duration of the qwen run, and the offers kept by one model only.
 
-    python -u -m scripts.compare_triage /tmp/jw_icrc_rolex.db [--limit N]
+    python -u -m scripts.compare_triage DB [--limit N] [--batch-size N] [--qwen-think]
 """
 import argparse
 import sqlite3
 from pathlib import Path
 
 from job_watch import config
-from job_watch.offers.triage import TriageInput, compare, triage_offers
+from job_watch.offers.triage import TriageInput, batch_size, compare, timed, triage_offers
 
 
 def load_offers(path: Path, limit: int | None) -> list[TriageInput]:
@@ -25,36 +27,46 @@ def load_offers(path: Path, limit: int | None) -> list[TriageInput]:
 
 
 def describe(triage) -> str:
-    return triage.category + (f" + {triage.secondary}" if triage.secondary else "") + ("" if triage.answered
-                                                                                       else " (no valid answer)")
+    if not triage.answered:
+        return "(no valid answer)"
+    return triage.domain + (f" > {triage.category}" if triage.category else "")
 
 
 def main():
     parser = argparse.ArgumentParser()
     parser.add_argument("db", type=Path)
     parser.add_argument("--limit", type=int, help="first N titles only")
+    parser.add_argument("--batch-size", type=int, help="titles per qwen call (default: TRIAGE_BATCH_SIZE)")
+    parser.add_argument("--qwen-think", action="store_true", help="qwen3 reasoning on (slower)")
     args = parser.parse_args()
     if not args.db.exists():
         raise SystemExit(f"no database at {args.db}")
+    config.OLLAMA_THINK = args.qwen_think       # read when the client is built, before any call
 
     offers = load_offers(args.db, args.limit)
     local = tuple(m for m in config.TRIAGE_CHAIN if m[0] == "ollama")
     cloud = tuple(m for m in config.CLOUD_MODELS if m[0] == "gemini")
-    print(f"{len(offers)} titles; local {local}, cloud {cloud}", flush=True)
+    local_size = args.batch_size or batch_size(local)
+    print(f"{len(offers)} titles; qwen {local} batch {local_size}, think {args.qwen_think}; "
+          f"gemini {cloud} batch {batch_size(cloud)}", flush=True)
 
     def log(line):
         print(f"  {line}", flush=True)
 
     print("qwen:", flush=True)
-    first = triage_offers(offers, log=log, models=local)
+    first, seconds = timed(triage_offers, offers, log=log, models=local, size=local_size)
+    print(f"  qwen: {seconds:.0f} s ({seconds / max(len(offers), 1):.1f} s per title)", flush=True)
     print("gemini:", flush=True)
     second = triage_offers(offers, log=log, models=cloud)
     result = compare(offers, first, second)
 
     n = result.offers or 1
-    print(f"\nsame category: {result.same_category}/{result.offers} ({result.same_category / n:.0%}), "
-          f"same group: {result.same_group}/{result.offers} ({result.same_group / n:.0%})")
-    print(f"\n{len(result.disagreements)} disagreements (title | qwen | gemini):")
+    print(f"\nsame domain: {result.same_domain}/{result.offers} ({result.same_domain / n:.0%}); "
+          f"same decision (Technology/IT or not): {result.same_keep}/{result.offers} ({result.same_keep / n:.0%})")
+    print(f"'Other': qwen {result.other[0]}, gemini {result.other[1]}; "
+          f"no valid answer (kept): qwen {result.no_answer[0]}, gemini {result.no_answer[1]}")
+    print(f"qwen run: {seconds:.0f} s for {result.offers} titles")
+    print(f"\n{len(result.disagreements)} offers kept by one model only (title | qwen | gemini):")
     for d in result.disagreements:
         print(f"- {d.title[:80]} [{d.company}]\n    qwen:   {describe(d.first)}\n    gemini: {describe(d.second)}")
 
