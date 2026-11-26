@@ -10,9 +10,9 @@ POINTS = {"ask": "Is the job in Geneva?", "points": 15, "group": "location"}
 REJECT = {"ask": "Is the job abroad?", "reject": True}
 
 
-def error(profile="Short profile", criteria=(POINTS,), code_criteria=()) -> str:
+def error(profile="Short profile", criteria=(POINTS,), code_criteria=(), kept_domains=("Technology/IT",)) -> str:
     with pytest.raises(SystemExit) as raised:
-        load_settings(profile, list(criteria), list(code_criteria))
+        load_settings(profile, list(criteria), list(code_criteria), list(kept_domains))
     return str(raised.value)
 
 
@@ -20,15 +20,18 @@ def test_valid_settings_are_loaded():
     settings = load_settings("Short profile", [POINTS, REJECT, {"ask": "No experience asked?", "points": 10,
                                                                 "absence": True}],
                              [{"type": "company_in", "names": ["Pictet"], "points": 20, "group": "company"},
-                              {"type": "posted_older_than_days", "days": 30, "points": -5}])
+                              {"type": "posted_older_than_days", "days": 30, "points": -5}],
+                             ["Technology/IT", "Other", "Other"])
     assert [c.points for c in settings.criteria] == [15, None, 10]
     assert settings.criteria[1].reject and settings.criteria[2].absence
     assert [c.type for c in settings.code_criteria] == ["company_in", "posted_older_than_days"]
+    assert settings.kept_domains == ["Technology/IT", "Other"]
 
 
 def test_the_example_config_is_valid():
     example = runpy.run_path(str(config.BASE_DIR / "user_config.example.py"))
-    assert load_settings(example["PROFILE"], example["CRITERIA"], example["CODE_CRITERIA"]).criteria
+    assert load_settings(example["PROFILE"], example["CRITERIA"], example["CODE_CRITERIA"],
+                         example["KEPT_DOMAINS"]).criteria
 
 
 @pytest.mark.parametrize("criterion, expected", [
@@ -71,3 +74,12 @@ def test_criteria_must_not_be_empty():
 ])
 def test_a_bad_code_criterion_is_named_in_the_error(code_criterion, expected):
     assert expected in error(code_criteria=[code_criterion])
+
+
+@pytest.mark.parametrize("kept_domains, expected", [
+    ([], "KEPT_DOMAINS"),
+    (["Technology/IT", "IT"], "KEPT_DOMAINS: unknown domains ['IT']"),
+    (["technology/it"], "unknown domains"),
+])
+def test_kept_domains_are_known_triage_domains(kept_domains, expected):
+    assert expected in error(kept_domains=kept_domains)

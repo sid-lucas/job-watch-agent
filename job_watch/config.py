@@ -8,12 +8,12 @@ except ModuleNotFoundError:
 from user_config import (
     MIN_SCORE, MAX_DISPLAY, MIN_VERIFY_SCORE, MAX_VERIFY_PER_RUN,
     TOP_COMPANIES, GOOD_COMPANIES, COMPANY_ALIASES, COMPANY_DOMAINS, COMPANY_CONTEXT,
-    PROFILE, CRITERIA, CODE_CRITERIA,
+    PROFILE, CRITERIA, CODE_CRITERIA, KEPT_DOMAINS,
 )
 from job_watch.offers.criteria import load_settings
 
 # Criteria of the user, validated at startup (a problem stops the program with a clear message)
-SETTINGS = load_settings(PROFILE, CRITERIA, CODE_CRITERIA)
+SETTINGS = load_settings(PROFILE, CRITERIA, CODE_CRITERIA, KEPT_DOMAINS)
 
 # Rules applied by code to the facts of an offer (offers/rules.py), until the criteria above replace them.
 SECURITY_CATEGORIES = ["Cybersecurity SOC/incident response", "Cybersecurity GRC/risk/compliance",
@@ -53,9 +53,6 @@ NAVIGATION_CHAIN = [*CLOUD_MODELS, ("mistral", "mistral-small-latest"), ("ollama
 # of the chain is split again with that model's size)
 TRIAGE_BATCH_SIZE = {"ollama": 10, "gemini": 25, "mistral": 25, "default": 10}
 OLLAMA_THINK = False     # qwen3 reasoning ("thinking"): slower; off by default
-# Domains of offers.triage kept ("Other": the title gives no clue, so unknown, kept; an offer without a
-# valid answer is kept too)
-KEPT_DOMAINS = ["Technology/IT", "Other"]
 OLLAMA_NUM_CTX = 24576   # context size in tokens; fits a 30000-character page in 11 GB of VRAM
 
 # RSS source

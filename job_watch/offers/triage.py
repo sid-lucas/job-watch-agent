@@ -16,35 +16,12 @@ from typing import Literal
 from pydantic import BaseModel, Field
 
 from job_watch import config
+from job_watch.offers.criteria import DOMAINS, OTHER, TECHNOLOGY
 from job_watch.list_agent.tools import _untrusted
 from job_watch.llm import call_with_retry, llm_chain, structured_llm
 
-TECHNOLOGY = "Technology/IT"
-OTHER = "Other"
-
-# Domains (closed list) with what the LLM is told about each one
-DOMAINS = {
-    TECHNOLOGY: "software, IT infrastructure, cloud, network, cybersecurity, data, AI, IT support "
-                "(developer, sysadmin, SOC analyst, data engineer, IT project manager)",
-    "Engineering & R&D (non-IT)": "engineering and technicians outside IT: mechanical, electrical, "
-                                  "microtechnology, chemistry, research labs, quality engineering, maintenance",
-    "Finance, banking & accounting": "banking, investment, wealth management, accounting, audit, controlling, "
-                                     "non-IT risk and compliance",
-    "Sales, marketing & communication": "sales, client advisors in shops, marketing, communication, events, "
-                                        "public relations",
-    "HR, legal & administration": "human resources, legal, administration, assistants, procurement, facilities",
-    "Operations, production & logistics": "production, watchmaking, manufacturing, logistics, supply chain, "
-                                          "warehouse, operations, catering",
-    "Healthcare & humanitarian": "medical and health roles, humanitarian delegates and field roles",
-    "Security & safety (physical)": "guards, physical security, safety at work, building security, fire safety",
-    "Education & training": "teachers, trainers, apprentices' coaches, academic positions",
-    OTHER: "the title gives no clue at all",
-}
-Domain = Literal[
-    "Technology/IT", "Engineering & R&D (non-IT)", "Finance, banking & accounting",
-    "Sales, marketing & communication", "HR, legal & administration", "Operations, production & logistics",
-    "Healthcare & humanitarian", "Security & safety (physical)", "Education & training", "Other",
-]
+# Domains: closed list of offers/criteria.py (KEPT_DOMAINS in user_config.py chooses among them)
+Domain = Literal[*DOMAINS]
 # Fine categories, asked only for Technology/IT
 TECH_CATEGORIES = [
     "Cybersecurity SOC/incident response",

@@ -16,6 +16,30 @@ from pydantic import BaseModel, ConfigDict, Field, TypeAdapter, ValidationError,
 
 MAX_PROFILE_CHARS = 1000    # a short context for the LLM, never a CV
 
+# Domains of the triage (offers/triage.py), a closed list with what the LLM is told about each one.
+# General, never the user's preferences: KEPT_DOMAINS in user_config.py chooses among them.
+TECHNOLOGY = "Technology/IT"
+OTHER = "Other"
+
+# Domains (closed list) with what the LLM is told about each one
+DOMAINS = {
+    TECHNOLOGY: "software, IT infrastructure, cloud, network, cybersecurity, data, AI, IT support "
+                "(developer, sysadmin, SOC analyst, data engineer, IT project manager)",
+    "Engineering & R&D (non-IT)": "engineering and technicians outside IT: mechanical, electrical, "
+                                  "microtechnology, chemistry, research labs, quality engineering, maintenance",
+    "Finance, banking & accounting": "banking, investment, wealth management, accounting, audit, controlling, "
+                                     "non-IT risk and compliance",
+    "Sales, marketing & communication": "sales, client advisors in shops, marketing, communication, events, "
+                                        "public relations",
+    "HR, legal & administration": "human resources, legal, administration, assistants, procurement, facilities",
+    "Operations, production & logistics": "production, watchmaking, manufacturing, logistics, supply chain, "
+                                          "warehouse, operations, catering",
+    "Healthcare & humanitarian": "medical and health roles, humanitarian delegates and field roles",
+    "Security & safety (physical)": "guards, physical security, safety at work, building security, fire safety",
+    "Education & training": "teachers, trainers, apprentices' coaches, academic positions",
+    OTHER: "the title gives no clue at all",
+}
+
 
 class _Effect(BaseModel):
     """What a "yes" does: reject the offer, or give points (within a group, if any)."""
@@ -63,11 +87,20 @@ CodeCriterion = Annotated[CompanyIn | PostedOlderThan, Field(discriminator="type
 
 
 class Settings(BaseModel):
-    """PROFILE, CRITERIA and CODE_CRITERIA of user_config.py, validated together."""
+    """PROFILE, CRITERIA, CODE_CRITERIA and KEPT_DOMAINS of user_config.py, validated together."""
     model_config = ConfigDict(extra="forbid", str_strip_whitespace=True)
     profile: str = Field(min_length=1, max_length=MAX_PROFILE_CHARS)
     criteria: list[Criterion] = Field(min_length=1)
     code_criteria: list[CodeCriterion] = []
+    kept_domains: list[str] = Field(min_length=1)
+
+    @field_validator("kept_domains")
+    @classmethod
+    def known_domains(cls, domains: list[str]) -> list[str]:
+        unknown = [d for d in domains if d not in DOMAINS]
+        if unknown:
+            raise ValueError(f"unknown domains {unknown} (known: {', '.join(DOMAINS)})")
+        return list(dict.fromkeys(domains))
 
     @field_validator("criteria")
     @classmethod
@@ -79,7 +112,7 @@ class Settings(BaseModel):
         return criteria
 
 
-_NAMES = {"profile": "PROFILE", "criteria": "CRITERIA", "code_criteria": "CODE_CRITERIA"}
+_NAMES = {"profile": "PROFILE", "criteria": "CRITERIA", "code_criteria": "CODE_CRITERIA", "kept_domains": "KEPT_DOMAINS"}
 
 
 def _where(location: tuple, raw: dict) -> str:
@@ -98,9 +131,9 @@ def _where(location: tuple, raw: dict) -> str:
     return f"{name}[{index}]" + (f" ({str(label)[:60]!r})" if label else "")
 
 
-def load_settings(profile, criteria, code_criteria) -> Settings:
+def load_settings(profile, criteria, code_criteria, kept_domains) -> Settings:
     """Validate the settings; raise SystemExit with one clear line per problem."""
-    raw = {"profile": profile, "criteria": criteria, "code_criteria": code_criteria}
+    raw = {"profile": profile, "criteria": criteria, "code_criteria": code_criteria, "kept_domains": kept_domains}
     try:
         return TypeAdapter(Settings).validate_python(raw)
     except ValidationError as error:

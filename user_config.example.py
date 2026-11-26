@@ -21,6 +21,13 @@ COMPANY_ALIASES = {}
 # Short description of a company, for names shared with other organisations (used by the page judge)
 COMPANY_CONTEXT = {}
 
+# Domains of the triage kept (the others are set aside before any page is opened). Known domains:
+# "Technology/IT", "Engineering & R&D (non-IT)", "Finance, banking & accounting",
+# "Sales, marketing & communication", "HR, legal & administration", "Operations, production & logistics",
+# "Healthcare & humanitarian", "Security & safety (physical)", "Education & training", "Other".
+# Keep "Other" (the title gives no clue): an offer is never set aside on what is not known.
+KEPT_DOMAINS = ["Technology/IT", "Other"]
+
 # Short text about you, given to the LLM as context when it answers the criteria. It is sent to
 # cloud models: keep it short and never put personal documents (CV, letters) in it.
 PROFILE = "Recent graduate in computer science, looking for an entry-level IT job."
