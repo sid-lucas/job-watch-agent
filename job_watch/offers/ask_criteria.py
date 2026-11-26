@@ -31,7 +31,15 @@ For each question, answer:
 - "unknown" when the offer does not say. Never guess: "unknown" is always a valid answer.
 Questions marked (absence) are about something the ad does not mention: answer "yes" with an empty
 quote only when the full ad is given and says nothing about it.
-When only the listing is given (no ad text), most answers are "unknown"."""
+When only the listing is given (no ad text), most answers are "unknown".
+Rules for every "yes":
+1. The quote alone must prove the answer. When the question is about a number (years, salary,
+   workload), answer from the number in the quote: "at least 3 years" does not answer "at least 5 years".
+2. A question about the job is about this position, its tasks and requirements, not about the
+   company in general: an AI company also hires for jobs that are not about AI.
+3. Quote the words of the offer itself, never a description of the offer (not "the ad is in German").
+4. A quote is one continuous piece of the offer, copied as it is: never join pieces with "...",
+   never drop, add or change a word."""
 
 
 class OfferInput(BaseModel):

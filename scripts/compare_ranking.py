@@ -1,9 +1,9 @@
 """Score stored offers with the criteria of user_config.py and compare with their stored score (read only).
 
 One LLM call per offer (DETAIL_CHAIN); nothing is written to the database. The raw answers of the
-LLM are saved after each offer (data/criteria_answers.json by default, next to the database, out of
-the repository) and reused on the next run while the questions are the same: they are checked
-again by the code each time. A run stopped halfway resumes, and a change of points, groups, code
+LLM are saved after each offer (data/criteria_answers.jsonl by default, next to the database, out of
+the repository: one JSON line per offer, appended; a later line for the same offer wins) and reused
+on the next run while the questions are the same: they are checked again by the code each time. A run stopped halfway resumes, and a change of points, groups, code
 criteria or of the checks needs no LLM call (--no-llm).
 
     python -u -m scripts.compare_ranking --limit 3                  # the 3 best stored scores
@@ -12,13 +12,16 @@ criteria or of the checks needs no LLM call (--no-llm).
     python -u -m scripts.compare_ranking --all --no-llm
 """
 import argparse
+import hashlib
 import json
 import sqlite3
+from collections import Counter
 from datetime import date, datetime
 from pathlib import Path
 
 from job_watch import config
 from job_watch.list_agent.detail import date_stated
+from job_watch.llm import calls_since, model_calls
 from job_watch.offers import storage
 from job_watch.offers.ask_criteria import OfferInput, answer_offer, check_offer
 from job_watch.offers.criteria import Answer, CheckedAnswer, Verdict, judge
@@ -50,8 +53,35 @@ def offer_input(offer: dict) -> tuple[OfferInput, bool]:
                       location=offer.get("city") or offer.get("location") or "", ad=ad), full_ad
 
 
-def load_saved(path: Path) -> dict:
-    return json.loads(path.read_text(encoding="utf-8")) if path.exists() else {}
+def questions_id(asks: list[str]) -> str:
+    """Short fingerprint of the questions: saved answers are reused only for the same questions."""
+    return hashlib.sha256("\n".join(asks).encode()).hexdigest()[:12]
+
+
+def load_saved(path: Path, questions: str) -> dict[str, tuple[list[Answer], str]]:
+    """Raw answers by offer ("company|key") given to these questions, with the model that gave them;
+    the last line of an offer wins."""
+    saved = {}
+    if path.exists():
+        for line in path.read_text(encoding="utf-8").splitlines():
+            entry = json.loads(line)
+            if entry["questions"] == questions:
+                answers = [Answer(id=k, answer=a, quote=q) for k, (a, q) in entry["answers"].items()]
+                saved[entry["offer"]] = (answers, entry.get("model", "not recorded"))
+    return saved
+
+
+def save_answers(path: Path, name: str, questions: str, raw: list[Answer], model: str) -> None:
+    """Append one line: only the answers that say something (a missing answer is read as unknown)."""
+    answers = {a.id: [a.answer, a.quote] for a in raw if a.answer != "unknown" or a.quote}
+    line = {"offer": name, "questions": questions, "model": model, "answers": answers}
+    with path.open("a", encoding="utf-8") as file:
+        file.write(json.dumps(line, ensure_ascii=False) + "\n")
+
+
+def answering_model(calls: dict[str, int]) -> str:
+    """The model that answered, from the calls of one offer ("provider:model"; failures carry a suffix)."""
+    return next((name for name in calls if " " not in name), "")
 
 
 def label(offer: dict) -> str:
@@ -71,8 +101,8 @@ def main():
     parser.add_argument("--limit", type=int, default=3, help="number of offers, best stored scores first")
     parser.add_argument("--all", action="store_true", help="every stored offer, kept or rejected")
     parser.add_argument("--source", help="only this source (career_site, swissdevjobs)")
-    parser.add_argument("--answers", type=Path, default=config.DB_PATH.parent / "criteria_answers.json",
-                        help="JSON file of the raw answers, saved then reused (default: %(default)s)")
+    parser.add_argument("--answers", type=Path, default=config.DB_PATH.parent / "criteria_answers.jsonl",
+                        help="JSON Lines file of the raw answers, saved then reused (default: %(default)s)")
     parser.add_argument("--no-llm", action="store_true", help="only the saved answers, no LLM call")
     args = parser.parse_args()
 
@@ -90,32 +120,33 @@ def main():
     conn.close()
 
     settings, today = config.SETTINGS, date.today()
-    asks = [c.ask for c in settings.criteria]
-    saved = load_saved(args.answers)
+    questions = questions_id([c.ask for c in settings.criteria])
+    saved = load_saved(args.answers, questions)
     results: list[tuple[dict, Verdict, list[CheckedAnswer]]] = []
-    failed, reused = [], 0
+    failed, reused, models, start = [], 0, Counter(), model_calls()
     for number, row in enumerate(rows, 1):
         offer = storage.row_to_offer(row)
         name = f"{offer['company']}|{offer['key']}"
-        entry = saved.get(name)
         query, full_ad = offer_input(offer)
-        if entry and entry.get("asks") == asks:         # same questions: same raw answers, checked again
-            raw = [Answer(**a) for a in entry["answers"]]
+        if name in saved:                       # same questions: same raw answers, checked again
+            raw, model = saved[name]
             checked, reused = check_offer(settings, query, full_ad, raw), reused + 1
         elif args.no_llm:
             continue
         else:
+            before = model_calls()
             checked, raw = answer_offer(settings, query, full_ad=full_ad)
+            model = answering_model(calls_since(before)) if raw is not None else ""
             if raw is not None:                 # a failed call is not saved: the next run asks again
-                saved[name] = {"asks": asks, "answers": [a.model_dump() for a in raw]}
-                args.answers.write_text(json.dumps(saved, ensure_ascii=False, indent=1), encoding="utf-8")
+                save_answers(args.answers, name, questions, raw, model)
+        models[model or "every model failed"] += 1
         answered = raw is not None
         if not answered:
             failed.append(offer)
         verdict = judge(settings, checked, offer["company"], posted_date(offer), today)
         results.append((offer, verdict, checked))
         print(f"[{number}/{len(rows)}] {label(offer)}: stored {offer['status']} {offer['score']} -> "
-              f"{verdict.status} {verdict.score}{'' if answered else '  (every model failed)'}", flush=True)
+              f"{verdict.status} {verdict.score}  [{model or 'every model failed'}]", flush=True)
 
     # ---------- summary ----------
     old = sorted((r for r in results if r[0]["status"] == "new"), key=lambda r: -(r[0]["score"] or 0))
@@ -149,7 +180,15 @@ def main():
     print(f"\n=== quotes not found in the ad: {len(refused)} ===")
     for offer, answer in refused[:15]:
         print(f"  {label(offer)}: {answer.ask[:50]!r} <- {answer.quote[:80]!r}")
-    print(f"\nOffers: {len(results)}, answers reused: {reused}, every model failed: {len(failed)}")
+    shown = sum(v.score >= config.MIN_SCORE for _, v, _ in new)
+    print(f"\nKept: {len(rank_old)} stored, {len(rank_new)} new; new kept with score >= MIN_SCORE "
+          f"({config.MIN_SCORE}): {shown}")
+    print(f"Offers: {len(results)}, answers reused: {reused}, every model failed: {len(failed)}")
+    print("Answers per model: " + ", ".join(f"{m} {n}" for m, n in models.most_common()))
+    calls = calls_since(start)
+    if calls:
+        print("Calls of this run (failed, waited and skipped included): "
+              + ", ".join(f"{m} {n}" for m, n in calls.items()))
     for offer in failed:
         print(f"  {label(offer)}")
 
