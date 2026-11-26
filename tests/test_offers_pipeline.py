@@ -286,3 +286,13 @@ def test_fact_columns_are_added_to_an_existing_offers_table():
     assert set(storage.FACT_COLUMNS) <= columns
     assert conn.execute("SELECT title FROM offers").fetchall() == [("Analyst",)]
     conn.close()
+
+
+def test_the_salary_line_of_the_feed_is_not_part_of_the_description():
+    """The feed starts every description with its own salary estimate: never the employer's salary."""
+    from job_watch.offers.nodes import without_board_salary
+    feed = "Salary: CHF 135'000 - 150'000 per year\nRequirements:\nPython"
+    assert without_board_salary(feed) == "Requirements:\nPython"
+    employer = "About us\nSalary: CHF 120'000 per year\nPython"            # written in the ad itself
+    assert without_board_salary(employer) == employer
+    assert without_board_salary("") == ""

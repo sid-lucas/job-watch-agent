@@ -41,6 +41,16 @@ def html_to_text(html: str) -> str:
     return BeautifulSoup(html, "html.parser").get_text(separator="\n", strip=True)
 
 
+def without_board_salary(description: str) -> str:
+    """The description without the first line "Salary: ..." that the feed adds to every offer.
+
+    That line is an estimate of the job board, not the employer's salary: the criteria about the
+    salary must only read what the employer writes in the ad.
+    """
+    first, _, rest = description.partition("\n")
+    return rest if first.strip().casefold().startswith("salary:") else description
+
+
 def wants(state: JobState, source: str) -> bool:
     """True when the run includes this source ("rss" or "career_sites"; both by default)."""
     return source in state.get("sources", ["rss", "career_sites"])
@@ -63,7 +73,7 @@ def fetch_rss(state: JobState) -> dict:
             title=position,
             company=company,
             location="unknown", # TODO: CHANGE, the RSS feed has no location
-            description=html_to_text(entry.get("description", "")),
+            description=without_board_salary(html_to_text(entry.get("description", ""))),
             source=config.SOURCE_NAME,
             link=link,
             published=to_iso(entry.get("published", "")),

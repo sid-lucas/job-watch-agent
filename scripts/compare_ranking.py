@@ -14,6 +14,7 @@ from job_watch.list_agent.detail import date_stated
 from job_watch.offers import storage
 from job_watch.offers.ask_criteria import OfferInput, answer_offer
 from job_watch.offers.criteria import judge
+from job_watch.offers.nodes import without_board_salary
 
 
 def posted_date(offer: dict) -> date | None:
@@ -47,8 +48,11 @@ def main():
         offer = storage.row_to_offer(row)
         # Career-site description: the text of the offer page. RSS description: not known to be the whole ad
         full_ad = offer["source"] == "career_site" and bool(offer["description"])
+        ad = offer["description"] or ""
+        if offer["source"] != "career_site":
+            ad = without_board_salary(ad)       # RSS offers stored before the feed line was removed
         query = OfferInput(company=offer["company"], title=offer["title"],
-                           location=offer.get("city") or offer.get("location") or "", ad=offer["description"] or "")
+                           location=offer.get("city") or offer.get("location") or "", ad=ad)
         checked, answered = answer_offer(settings, query, full_ad=full_ad)
         verdict = judge(settings, checked, offer["company"], posted_date(offer), today)
 

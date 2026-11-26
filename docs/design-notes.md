@@ -30,7 +30,7 @@ Principle: the LLM reads and states facts, the code applies the user's rules. Th
 
 Goal: for each target company, find the URL of the page that lists its job offers (not just its career site), only where automated access is allowed. This URL is what V1.2 reads.
 
-Why: the RSS feed is incomplete (no location, links that lead to the job list). Company career sites are the most reliable source, but their job list URL must be known first.
+Why: the RSS feed is incomplete (no location, links that lead to the job list). Its descriptions start with a salary line added by the job board ("Salary: CHF ... per year", an estimate, not the employer's): it is removed when the feed is read, so the salary criteria only read what the employer writes. Company career sites are the most reliable source, but their job list URL must be known first.
 
 `data/career_sites.json` (not committed) is the registry itself: one entry per company, with its candidates, the chosen URL, its status and the trail of every decision.
 
