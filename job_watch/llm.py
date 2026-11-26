@@ -206,37 +206,40 @@ def _client(provider: str, model: str):
 OPTIONAL_KEYS = {"mistral": "MISTRAL_API_KEY"}
 
 
-def llm_chain() -> list[tuple[str, str]]:
-    """LLM_CHAIN from config, or only one provider when LLM_ONLY is set (e.g. LLM_ONLY=ollama).
+CHAINS = {"triage": "TRIAGE_CHAIN", "detail": "DETAIL_CHAIN", "navigation": "NAVIGATION_CHAIN"}
+Task = Literal["triage", "detail", "navigation"]
+
+
+def llm_chain(task: Task = "detail") -> list[tuple[str, str]]:
+    """Chain of the task from config, or only one provider when LLM_ONLY is set (e.g. LLM_ONLY=ollama).
 
     An optional provider without its API key in the environment is left out.
     """
     only = os.environ.get("LLM_ONLY")
-    chain = [(p, m) for p, m in config.LLM_CHAIN if (not only or p == only)
+    chain = [(p, m) for p, m in getattr(config, CHAINS[task]) if (not only or p == only)
              and (p not in OPTIONAL_KEYS or os.environ.get(OPTIONAL_KEYS[p]))]
     if not chain:
-        raise ValueError(f"No model left in LLM_CHAIN for LLM_ONLY={only}")
+        raise ValueError(f"No model left in {CHAINS[task]} for LLM_ONLY={only}")
     return chain
 
 
 @cache
-def structured_llm(schema):
-    """Models of the chain, each returning the given Pydantic schema, tried in order (a model out of
-    quota is skipped)."""
+def structured_llm(schema, task: Task = "detail", models: tuple[tuple[str, str], ...] | None = None):
+    """Models of the task's chain (or the given models), each returning the Pydantic schema, tried in
+    order with the rate-limit policy."""
     return _chain([(f"{provider}:{model}", _client(provider, model).with_structured_output(schema))
-                   for provider, model in llm_chain()])
-
+                   for provider, model in (models or llm_chain(task))])
 
 
 @cache
-def tool_llm(tools: tuple):
-    """Models of the chain, each bound to the given tools, tried in order.
+def tool_llm(tools: tuple, task: Task = "navigation"):
+    """Models of the task's chain, each bound to the given tools, tried in order.
 
     Binding is done per model before the fallbacks are chained: a fallback model receives
     the same tool schemas. The answer is an AIMessage; its tool_calls are requests only.
     """
     return _chain([(f"{provider}:{model}", _client(provider, model).bind_tools(list(tools)))
-                   for provider, model in llm_chain()])
+                   for provider, model in llm_chain(task)])
 
 
 def call_with_retry(func, *args, attempts: int = 2, wait_seconds: int = 5):

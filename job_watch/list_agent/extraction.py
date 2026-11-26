@@ -107,6 +107,10 @@ class CheckedOffer(BaseModel):
     reference: str      # found in the chunk, or ""
     verified: bool      # the link is the href of an element whose text or name contains the title
     key: str = ""       # set by deduplicate(): stable across runs, from page data only
+    # Set by the triage of new offers (offers.triage); None: not triaged (offer already known)
+    category: str | None = None
+    secondary_category: str | None = None
+    category_reason: str = ""
 
 
 def _fold(text: str) -> tuple[str, list[int]]:

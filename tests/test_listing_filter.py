@@ -1,19 +1,14 @@
-"""Filter on listed offers: IT title (keywords of user_config), location not clearly abroad."""
+"""Filter on listed offers: category from the triage, location not clearly abroad."""
 import pytest
 
 from job_watch.list_agent.extraction import CheckedOffer
 from job_watch.offers import listing_filter
-from job_watch.offers.listing_filter import is_it_title, keep, location_verdict
+from job_watch.offers.listing_filter import keep, location_verdict
 
 
-@pytest.fixture(autouse=True)
-def keywords(monkeypatch):
-    # Fixed keywords: the test does not depend on the personal user_config.py
-    monkeypatch.setattr(listing_filter.config, "KEYWORDS", ["security", "cyber", "soc"])
-
-
-def offer(title, location):
-    return CheckedOffer(title=title, location=location, link="", reference="", verified=False, key="k")
+def offer(title, location, category="Cybersecurity SOC/incident response"):
+    return CheckedOffer(title=title, location=location, link="", reference="", verified=False, key="k",
+                        category=category)
 
 
 @pytest.mark.parametrize("location, expected", [
@@ -48,30 +43,26 @@ def test_codes_and_names_are_whole_words_only():
     assert location_verdict("fr") == "unknown"                  # codes count in upper case only
 
 
-@pytest.mark.parametrize("title, expected", [
-    ("Security Engineer (m/w)", True),
-    ("SOC Analyst", True),
-    ("Cyber Defence Specialist", True),
-    ("Associate, Socially Responsible Investment", False),  # "soc" inside a word
-    ("Client Advisor", False),
-])
-def test_it_titles(title, expected):
-    assert is_it_title(title) is expected
-
-
-def test_keep_needs_an_it_title_and_a_location_not_clearly_abroad():
+def test_keep_needs_a_kept_category_and_a_location_not_clearly_abroad():
     assert keep(offer("Security Engineer", "Geneva"))
     assert keep(offer("Security Engineer", "unknown"))
     assert keep(offer("Security Engineer", "Remote"))
     assert keep(offer("Security Engineer", "Gossau"))
     assert not keep(offer("Security Engineer", "Singapore"))
-    assert not keep(offer("Client Advisor", "Geneva"))
+    assert not keep(offer("Client Advisor", "Geneva", "Banking/investment/wealth management"))
+    assert not keep(offer("Huissier sécurité", "Geneva", "Physical security/safety"))
+
+
+def test_an_offer_without_a_stated_category_is_kept():
+    assert keep(offer("Something", "Geneva", "Unclear"))
+    assert keep(offer("Something", "Geneva", None))                       # not triaged
 
 
 def test_keep_plugs_into_listed_offers(tmp_path):
     from job_watch.offers.listed import connect, save_listed_offers
     conn = connect(tmp_path / "test.db")
-    offers = [offer("Security Engineer", "Zurich"), offer("Client Advisor", "Zurich")]
+    offers = [offer("Security Engineer", "Zurich"),
+              offer("Client Advisor", "Zurich", "Banking/investment/wealth management")]
     offers[1].key = "k2"
     save_listed_offers(conn, "Bank", offers, "2026-11-25", keep=keep)
     assert conn.execute("SELECT key, kept FROM listed_offers ORDER BY key").fetchall() == [("k", 1), ("k2", 0)]

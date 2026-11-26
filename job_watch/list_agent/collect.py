@@ -18,6 +18,7 @@ from job_watch.list_agent.extraction import CheckedOffer, extract_observations
 from job_watch.llm import calls_since, model_calls
 from job_watch.offers.listed import known_keys, now_iso, save_listed_offers
 from job_watch.offers.listing_filter import keep
+from job_watch.offers.triage import TriageInput, triage_offers
 
 
 class CompanyCollection(BaseModel):
@@ -49,6 +50,13 @@ def collect_company(company: str, url: str, conn: sqlite3.Connection,
     known = known_keys(conn, company)
     new_keys = [o.key for o in extraction.offers if o.key not in known]
     new = set(new_keys)
+    # Triage of the new offers only (known ones were triaged when first seen)
+    to_triage = [o for o in extraction.offers if o.key in new]
+    verdicts = triage_offers([TriageInput(title=o.title, location=o.location, company=company) for o in to_triage],
+                             log=log)
+    for offer, verdict in zip(to_triage, verdicts):
+        offer.category, offer.secondary_category = verdict.category, verdict.secondary
+        offer.category_reason = verdict.reason
     return CompanyCollection(
         company=company, url=url, stop=run.stop, pages_reached=agent_run.pages_reached(run.trail),
         offers=extraction.offers, new_keys=new_keys, seen=now_iso(),

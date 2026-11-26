@@ -132,9 +132,10 @@ def test_other_errors_do_not_skip_the_model(policy):
     assert chain.invoke("z").content == "cloud" and policy == []
 
 
+@pytest.mark.allow_llm_client
 def test_mistral_is_left_out_without_its_key(monkeypatch):
-    monkeypatch.setattr(llm.config, "LLM_CHAIN", [("gemini", "g"), ("mistral", "mistral-small-latest"),
-                                                  ("ollama", "q")])
+    monkeypatch.setattr(llm.config, "DETAIL_CHAIN", [("gemini", "g"), ("mistral", "mistral-small-latest"),
+                                                     ("ollama", "q")])
     monkeypatch.delenv("LLM_ONLY", raising=False)
     monkeypatch.delenv("MISTRAL_API_KEY", raising=False)
     assert [p for p, _ in llm.llm_chain()] == ["gemini", "ollama"]
@@ -142,3 +143,15 @@ def test_mistral_is_left_out_without_its_key(monkeypatch):
     assert [p for p, _ in llm.llm_chain()] == ["gemini", "mistral", "ollama"]
     client = llm._client("mistral", "mistral-small-latest")          # no network at construction
     assert type(client).__name__ == "ChatMistralAI" and client.model == "mistral-small-latest"
+
+
+def test_each_task_has_its_chain(monkeypatch):
+    monkeypatch.delenv("LLM_ONLY", raising=False)
+    monkeypatch.setattr(llm.config, "TRIAGE_CHAIN", [("ollama", "q"), ("gemini", "g")])
+    monkeypatch.setattr(llm.config, "DETAIL_CHAIN", [("gemini", "g"), ("ollama", "q")])
+    monkeypatch.setattr(llm.config, "NAVIGATION_CHAIN", [("gemini", "n")])
+    assert llm.llm_chain("triage") == [("ollama", "q"), ("gemini", "g")]
+    assert llm.llm_chain() == llm.llm_chain("detail") == [("gemini", "g"), ("ollama", "q")]
+    assert llm.llm_chain("navigation") == [("gemini", "n")]
+    monkeypatch.setenv("LLM_ONLY", "ollama")
+    assert llm.llm_chain("triage") == [("ollama", "q")]

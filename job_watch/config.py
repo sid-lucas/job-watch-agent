@@ -16,12 +16,24 @@ BASE_DIR = Path(__file__).parent.parent
 DB_PATH = BASE_DIR / "data" / "offers.db"
 REGISTRY_PATH = BASE_DIR / "data" / "career_sites.json"
 
-# LLM chain for public web data, tried in order: (provider, model)
-LLM_CHAIN = [
+# LLM chains for public web data, one per task, tried in order: (provider, model).
+# Mistral is ignored without MISTRAL_API_KEY.
+CLOUD_MODELS = [
     ("gemini", "gemini-3.5-flash-lite"),
     ("gemini", "gemini-3.1-flash-lite"),
-    ("mistral", "mistral-small-latest"),    # tool calling; ignored without MISTRAL_API_KEY
-    ("ollama", "qwen3:8b"),
+]
+# Triage: short titles in batches, the local model first (no quota), the cloud as fallback
+TRIAGE_CHAIN = [("ollama", "qwen3:8b"), *CLOUD_MODELS]
+# Reading pages (list extraction, offer detail, page judge): long text, structured output
+DETAIL_CHAIN = [*CLOUD_MODELS, ("mistral", "mistral-small-latest"), ("ollama", "qwen3:8b")]
+# List agent: tool calling
+NAVIGATION_CHAIN = [*CLOUD_MODELS, ("mistral", "mistral-small-latest"), ("ollama", "qwen3:8b")]
+TRIAGE_BATCH_SIZE = 25   # offers per triage call
+# Categories of offers.triage kept by the listing filter ("Unclear" and offers not triaged are always kept)
+KEPT_CATEGORIES = [
+    "Cybersecurity SOC/incident response", "Cybersecurity GRC/risk/compliance",
+    "Cybersecurity engineering/architecture/pentest", "AI security", "AI/ML/data science",
+    "Software engineering", "Infrastructure/cloud/network", "Data engineering/BI", "IT support/IT management",
 ]
 OLLAMA_NUM_CTX = 24576   # context size in tokens; fits a 30000-character page in 11 GB of VRAM
 

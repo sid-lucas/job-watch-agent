@@ -1,8 +1,7 @@
-"""Filter on listed offers, in code: IT title, and location not clearly abroad.
+"""Filter on listed offers, in code: category from the triage, and location not clearly abroad.
 
-Only the listing is known at this point (title and location, no description), so the
-keywords of user_config are searched in the title alone, with the V1 rule (whole words,
-case-insensitive).
+The category is a fact stated by the triage (offers.triage, closed list); which categories are kept
+is decided here, in code (config.KEPT_CATEGORIES). "Unclear", and an offer not triaged, are kept.
 
 Funnel principle: a lost offer costs more than an extra one. An offer is set aside only when
 its location is clearly abroad (another country, or a large foreign city) and names no Swiss
@@ -92,11 +91,6 @@ _FOREIGN_WORDS = re.compile(r"(?<![\w-])(?:" + "|".join(sorted((re.escape(w) for
 _SWISS_CODES = re.compile(r"(?<![\w-])(?:" + "|".join(sorted(SWISS_CODES)) + r")(?![\w-])")
 
 
-def is_it_title(title: str) -> bool:
-    """At least one keyword of user_config in the title (whole words, case-insensitive, as in V1)."""
-    return any(re.search(rf"\b{re.escape(k)}\b", title, re.IGNORECASE) for k in config.KEYWORDS)
-
-
 LocationVerdict = Literal["switzerland", "abroad", "unknown"]
 
 
@@ -111,6 +105,11 @@ def location_verdict(location: str) -> LocationVerdict:
     return "unknown"
 
 
+def category_kept(offer: CheckedOffer) -> bool:
+    """A kept category, "Unclear", or not triaged (never set aside without a stated category)."""
+    return offer.category in (None, "Unclear") or offer.category in config.KEPT_CATEGORIES
+
+
 def keep(offer: CheckedOffer) -> bool:
-    """IT title, and location not clearly abroad."""
-    return is_it_title(offer.title) and location_verdict(offer.location) != "abroad"
+    """Kept category, and location not clearly abroad."""
+    return category_kept(offer) and location_verdict(offer.location) != "abroad"

@@ -74,13 +74,16 @@ def fetch_rss(state: JobState) -> dict:
 
 
 def filter_keywords(state: JobState) -> dict:
-    """Node: keep only offers that contain at least one keyword (whole words)."""
+    """Node: keep only RSS offers that contain at least one keyword (whole words).
+
+    Career-site offers were already kept by the triage and the listing filter: not filtered again.
+    """
     patterns = [re.compile(rf"\b{re.escape(k)}\b", re.IGNORECASE) for k in config.KEYWORDS]
 
     kept = []
     for offer in state["offers"]:
         text = f"{offer['title']} {offer['description']}"
-        if any(p.search(text) for p in patterns):
+        if offer["source"] == "career_site" or any(p.search(text) for p in patterns):
             kept.append(offer)
 
     print(f"filter_keywords: {len(kept)} / {len(state['offers'])} offers kept")

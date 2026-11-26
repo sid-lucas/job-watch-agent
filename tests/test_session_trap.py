@@ -76,6 +76,17 @@ def find(obs: Observation, text: str, path: str | None = None, host: str = "127.
     return found[0]
 
 
+def fake_triage(monkeypatch, categories: dict[str, str]):
+    """Triage without LLM: the category of each title (Unclear when not given)."""
+    from job_watch.list_agent import collect
+    from job_watch.offers.triage import Triage
+
+    def triage_offers(offers, log=None, models=None):
+        return [Triage(category=categories.get(o.title, "Unclear"), reason="fake", answered=o.title in categories)
+                for o in offers]
+    monkeypatch.setattr(collect, "triage_offers", triage_offers)
+
+
 def kinds(s: BrowserSession) -> list[str]:
     return [event.kind for event in s.trail]
 
@@ -382,7 +393,8 @@ def test_collect_company_writes_nothing_and_save_collection_records_the_offers(s
 
     monkeypatch.setattr(collect.agent_run, "run_list_agent", fake_agent)
     monkeypatch.setattr(extraction, "extract_chunk", fake_extract)
-    monkeypatch.setattr(config, "KEYWORDS", ["cloud", "data"])
+    fake_triage(monkeypatch, {"Cloud Engineer": "Infrastructure/cloud/network", "Data Analyst": "Data engineering/BI",
+                              "Office Manager": "HR/legal/administration"})
     conn = connect(tmp_path / "test.db")
 
     first = collect.collect_company("Trap", f"{base}/offers.html", conn)
@@ -485,7 +497,7 @@ def test_collect_details_runs_the_three_steps(site, monkeypatch):
                                contract="permanent", workload="80-100 %", ad_language="en",
                                required_languages=["de", "en"], posted="2026-11-20")
 
-    monkeypatch.setattr(config, "KEYWORDS", ["cloud"])
+    offers[3].category = "HR/legal/administration"                          # set aside by the filter
     monkeypatch.setattr(detail, "structured_llm", lambda schema: FakeModel())
     monkeypatch.setattr(detail.time, "sleep", lambda seconds: None)
     result = collect_details(collection, render_wait_ms=FAST_RENDER_MS)
@@ -538,7 +550,11 @@ def test_main_runs_the_whole_career_site_pipeline(site, tmp_path, monkeypatch, c
     monkeypatch.setattr(detail.time, "sleep", lambda seconds: None)
     monkeypatch.setattr(config, "DB_PATH", config.DB_PATH)              # restored after the test
     monkeypatch.setattr(config, "REGISTRY_PATH", config.REGISTRY_PATH)
-    monkeypatch.setattr(config, "KEYWORDS", ["cloud", "security", "soc"])
+    fake_triage(monkeypatch, {"Cloud Engineer": "Infrastructure/cloud/network",
+                              "Security Analyst": "Cybersecurity SOC/incident response",
+                              "SOC Analyst": "Cybersecurity SOC/incident response",
+                              "HR Partner": "HR/legal/administration",
+                              "Cloud Architect": "Infrastructure/cloud/network"})
     monkeypatch.setattr(config, "REJECT_RULES", [])
     monkeypatch.setattr(config, "SCORE_RULES", [
         {"name": "security title", "field": "title", "points": 30, "pattern": r"\b(security|soc)\b"}])
@@ -554,6 +570,7 @@ def test_main_runs_the_whole_career_site_pipeline(site, tmp_path, monkeypatch, c
     conn = sqlite3.connect(db)
     rows = conn.execute("SELECT title, source, score, contract, description != '' FROM offers ORDER BY title").fetchall()
     listed = conn.execute("SELECT title, kept FROM listed_offers ORDER BY title").fetchall()
+    categories = dict(conn.execute("SELECT title, category FROM listed_offers").fetchall())
     conn.close()
     # Kept: IT title, not abroad. Detail pages: Cloud Engineer and Security Analyst (title in the page)
     assert rows == [("Cloud Engineer", "career_site", 0, "unknown", 1),       # "internship" not in the page
@@ -561,6 +578,7 @@ def test_main_runs_the_whole_career_site_pipeline(site, tmp_path, monkeypatch, c
                     ("Security Analyst", "career_site", 30, "internship", 1)]
     assert listed == [("Cloud Architect", 0), ("Cloud Engineer", 1), ("HR Partner", 0), ("SOC Analyst", 1),
                       ("Security Analyst", 1)]
+    assert categories["HR Partner"] == "HR/legal/administration"         # triage stored with the listed offer
     assert not any(path.startswith(("/apply.html", "/private/")) for _, _, path in log)
 
     entry.main(argv)                                                     # second run: nothing new
