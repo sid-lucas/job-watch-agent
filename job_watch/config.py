@@ -28,13 +28,12 @@ TRIAGE_CHAIN = [("ollama", "qwen3:8b"), *CLOUD_MODELS]
 DETAIL_CHAIN = [*CLOUD_MODELS, ("mistral", "mistral-small-latest"), ("ollama", "qwen3:8b")]
 # List agent: tool calling
 NAVIGATION_CHAIN = [*CLOUD_MODELS, ("mistral", "mistral-small-latest"), ("ollama", "qwen3:8b")]
-TRIAGE_BATCH_SIZE = 25   # offers per triage call
-# Categories of offers.triage kept by the listing filter ("Unclear" and offers not triaged are always kept)
-KEPT_CATEGORIES = [
-    "Cybersecurity SOC/incident response", "Cybersecurity GRC/risk/compliance",
-    "Cybersecurity engineering/architecture/pentest", "AI security", "AI/ML/data science",
-    "Software engineering", "Infrastructure/cloud/network", "Data engineering/BI", "IT support/IT management",
-]
+# Offers per triage call, by provider of the first model of the chain: the local model is more
+# reliable one title at a time, cloud models handle a batch
+TRIAGE_BATCH_SIZE = {"ollama": 1, "gemini": 25, "mistral": 25, "default": 10}
+OLLAMA_THINK = False     # qwen3 reasoning ("thinking"): slower; off by default
+# Domains of offers.triage kept by the listing filter (an offer without a valid answer is kept)
+KEPT_DOMAINS = ["Technology/IT"]
 OLLAMA_NUM_CTX = 24576   # context size in tokens; fits a 30000-character page in 11 GB of VRAM
 
 # RSS source

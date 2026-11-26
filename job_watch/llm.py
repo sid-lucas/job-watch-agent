@@ -196,8 +196,8 @@ def _client(provider: str, model: str):
         return ChatMistralAI(model=model, mistral_api_key=os.environ["MISTRAL_API_KEY"], timeout=MISTRAL_TIMEOUT,
                              max_retries=1, temperature=0, callbacks=counter)
     if provider == "ollama":
-        # Reasoning disabled: not supported together with structured output
-        return ChatOllama(model=model, num_ctx=config.OLLAMA_NUM_CTX, temperature=0, reasoning=False,
+        # Reasoning off by default (config.OLLAMA_THINK): slower, and not always compatible with structured output
+        return ChatOllama(model=model, num_ctx=config.OLLAMA_NUM_CTX, temperature=0, reasoning=config.OLLAMA_THINK,
                           client_kwargs={"timeout": OLLAMA_TIMEOUT}, callbacks=counter)
     raise ValueError(f"Unknown LLM provider: {provider}")
 

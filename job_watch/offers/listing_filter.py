@@ -1,7 +1,8 @@
-"""Filter on listed offers, in code: category from the triage, and location not clearly abroad.
+"""Filter on listed offers, in code: domain from the triage, and location not clearly abroad.
 
-The category is a fact stated by the triage (offers.triage, closed list); which categories are kept
-is decided here, in code (config.KEPT_CATEGORIES). "Unclear", and an offer not triaged, are kept.
+The domain is a fact stated by the triage (offers.triage, closed list); which domains are kept is
+decided here, in code (config.KEPT_DOMAINS). An offer without a domain (not triaged, or no valid
+answer) is kept.
 
 Funnel principle: a lost offer costs more than an extra one. An offer is set aside only when
 its location is clearly abroad (another country, or a large foreign city) and names no Swiss
@@ -105,11 +106,11 @@ def location_verdict(location: str) -> LocationVerdict:
     return "unknown"
 
 
-def category_kept(offer: CheckedOffer) -> bool:
-    """A kept category, "Unclear", or not triaged (never set aside without a stated category)."""
-    return offer.category in (None, "Unclear") or offer.category in config.KEPT_CATEGORIES
+def domain_kept(offer: CheckedOffer) -> bool:
+    """A kept domain, or no domain (never set aside without a stated domain)."""
+    return offer.domain is None or offer.domain in config.KEPT_DOMAINS
 
 
 def keep(offer: CheckedOffer) -> bool:
-    """Kept category, and location not clearly abroad."""
-    return category_kept(offer) and location_verdict(offer.location) != "abroad"
+    """Kept domain, and location not clearly abroad."""
+    return domain_kept(offer) and location_verdict(offer.location) != "abroad"

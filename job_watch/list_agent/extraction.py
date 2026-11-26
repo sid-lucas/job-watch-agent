@@ -107,8 +107,9 @@ class CheckedOffer(BaseModel):
     reference: str      # found in the chunk, or ""
     verified: bool      # the link is the href of an element whose text or name contains the title
     key: str = ""       # set by deduplicate(): stable across runs, from page data only
-    # Set by the triage of new offers (offers.triage); None: not triaged (offer already known)
-    category: str | None = None
+    # Set by the triage of new offers (offers.triage); domain None: not triaged, or no valid answer
+    domain: str | None = None
+    category: str | None = None             # Technology/IT only
     secondary_category: str | None = None
     category_reason: str = ""
 

@@ -26,13 +26,14 @@ CREATE TABLE IF NOT EXISTS listed_offers (
     first_seen  TEXT NOT NULL,
     last_seen   TEXT NOT NULL,
     kept        INTEGER,            -- 1 kept by the filter, 0 not kept, NULL not filtered
-    category            TEXT,       -- triage (offers.triage), NULL when not triaged
+    domain              TEXT,       -- triage (offers.triage), NULL when not triaged or no valid answer
+    category            TEXT,       -- Technology/IT only
     secondary_category  TEXT,
     category_reason     TEXT,
     PRIMARY KEY (company, key)
 )
 """
-ADDED_COLUMNS = {"category": "TEXT", "secondary_category": "TEXT", "category_reason": "TEXT"}
+ADDED_COLUMNS = {"domain": "TEXT", "category": "TEXT", "secondary_category": "TEXT", "category_reason": "TEXT"}
 
 
 def connect(path: Path | None = None) -> sqlite3.Connection:
@@ -73,11 +74,11 @@ def save_listed_offers(conn: sqlite3.Connection, company: str, offers: list[Chec
     conn.executemany(
         """
         INSERT INTO listed_offers (company, key, title, location, link, verified, first_seen, last_seen, kept,
-                                   category, secondary_category, category_reason)
-        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                                   domain, category, secondary_category, category_reason)
+        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
         """,
         [(company, o.key, o.title, o.location, o.link, int(o.verified), seen, seen,
-          None if keep is None else int(keep(o)), o.category, o.secondary_category, o.category_reason)
+          None if keep is None else int(keep(o)), o.domain, o.category, o.secondary_category, o.category_reason)
          for o in new],
     )
     conn.executemany(
