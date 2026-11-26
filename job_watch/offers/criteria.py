@@ -9,7 +9,14 @@ sharing a "group" are exclusive: only the best "yes" of the group counts. "absen
 question answered by the absence of something in the ad (no quote can prove it).
 
 This module validates the settings when the program starts, with messages that name the criterion.
+It also scores one offer: the answers of the LLM (yes / no / unknown, with a quote of the ad) are
+checked in code (a "yes" needs its quote in the text), then any reject criterion answered yes
+rejects the offer; otherwise the score is the sum of the points of the "yes" criteria, the best one
+per group. Unknown never rejects and never gives points.
 """
+import re
+import unicodedata
+from datetime import date
 from typing import Annotated, Literal
 
 from pydantic import BaseModel, ConfigDict, Field, TypeAdapter, ValidationError, field_validator, model_validator
@@ -152,3 +159,131 @@ def load_settings(profile, criteria, code_criteria, kept_domains) -> Settings:
                 message = 'missing or unknown "type" (known: company_in, posted_older_than_days)'
             lines.append(f"- {_where(location, raw)}{' ' + '.'.join(field) if field else ''}: {message}")
         raise SystemExit("Invalid user_config.py:\n" + "\n".join(lines)) from None
+
+
+# ---------- score of one offer, from the answers of the LLM (checked here) and the code criteria ----------
+
+AnswerValue = Literal["yes", "no", "unknown"]
+MIN_QUOTE_CHARS = 3         # shorter quotes ("a", "IT") would be found in almost any text
+MAX_QUOTE_CHARS = 300       # a quote is a short piece of evidence, not a copy of the ad
+
+
+class Answer(BaseModel):
+    """One answer of the LLM, as received (untrusted): checked by check_answers()."""
+    id: str                 # "c1", "c2"... in the order of CRITERIA
+    answer: AnswerValue
+    quote: str = ""
+
+
+class CheckedAnswer(BaseModel):
+    """The answer to one criterion after the checks of the code."""
+    ask: str
+    answer: AnswerValue     # "yes" only with a quote found in the text (or a valid absence)
+    quote: str              # the quote of the LLM, kept even when it was not found (to inspect)
+    quote_found: bool
+
+
+class Verdict(BaseModel):
+    status: Literal["new", "rejected"]  # "new": kept
+    score: int
+    reasons: list[str]      # criteria that rejected the offer, or that counted, with their points and evidence
+
+
+def criterion_id(index: int) -> str:
+    return f"c{index + 1}"
+
+
+def _normal(text: str) -> str:
+    """Text compared for quotes: Unicode compatibility form, case folded, whitespace collapsed."""
+    return " ".join(unicodedata.normalize("NFKC", text or "").casefold().split())
+
+
+def quote_in(quote: str, text: str) -> bool:
+    """True when the quote appears in the text (case and whitespace ignored), within the size limits."""
+    quote = _normal(quote)
+    return MIN_QUOTE_CHARS <= len(quote) <= MAX_QUOTE_CHARS and quote in _normal(text)
+
+
+def check_answers(settings: Settings, answers: list[Answer], text: str, detail_read: bool) -> list[CheckedAnswer]:
+    """One checked answer per criterion, in the order of CRITERIA.
+
+    Unknown ids are ignored, the first answer per id wins, a criterion without answer is unknown.
+    A "yes" needs a quote found in the text, else it becomes unknown. An "absence" criterion is a
+    "yes" without quote only when the full ad was read (detail_read: the page was opened and not
+    truncated); a quote it gives must be found too.
+    """
+    by_id: dict[str, Answer] = {}
+    for answer in answers:
+        by_id.setdefault(answer.id, answer)
+    checked = []
+    for index, criterion in enumerate(settings.criteria):
+        raw = by_id.get(criterion_id(index))
+        value, quote = (raw.answer, raw.quote.strip()) if raw else ("unknown", "")
+        found = bool(quote) and quote_in(quote, text)
+        if value == "yes":
+            if criterion.absence:
+                valid = detail_read and (found or not quote)
+            else:
+                valid = found
+            if not valid:
+                value = "unknown"
+        checked.append(CheckedAnswer(ask=criterion.ask, answer=value, quote=quote[:MAX_QUOTE_CHARS],
+                                     quote_found=found))
+    return checked
+
+
+def names_in(text: str, names: list[str]) -> str | None:
+    """First name found as a whole name in the text (case-insensitive), or None."""
+    return next((name for name in names
+                 if name.strip() and re.search(rf"(?<!\w){re.escape(name)}(?!\w)", text or "", re.IGNORECASE)),
+                None)
+
+
+class _Match(BaseModel):
+    """A criterion whose "yes" holds, with what is shown to the user."""
+    label: str
+    evidence: str
+    reject: bool
+    points: int
+    group: str | None
+    absence: bool = False
+
+
+def _code_matches(settings: Settings, company: str, posted: date | None, today: date) -> list[_Match]:
+    matches = []
+    for criterion in settings.code_criteria:
+        if isinstance(criterion, CompanyIn):
+            name = names_in(company, criterion.names)
+            label, evidence = "company in list", name
+        else:
+            older = posted is not None and (today - posted).days > criterion.days
+            label = f"posted over {criterion.days} days ago"
+            evidence = posted.isoformat() if older else None
+        if evidence:
+            matches.append(_Match(label=label, evidence=evidence, reject=bool(criterion.reject),
+                                  points=criterion.points or 0, group=criterion.group))
+    return matches
+
+
+def judge(settings: Settings, checked: list[CheckedAnswer], company: str, posted: date | None,
+          today: date) -> Verdict:
+    """Any reject criterion answered yes rejects the offer. Otherwise score = sum of the points of the
+    "yes" criteria, only the best one per group. An absence is contradicted (and dropped) by another
+    "yes" of its group: "no experience asked" cannot hold next to "exactly 3 years asked"."""
+    matches = [_Match(label=c.ask, evidence=answer.quote or "absent from the ad", reject=bool(c.reject),
+                      points=c.points or 0, group=c.group, absence=c.absence)
+               for c, answer in zip(settings.criteria, checked) if answer.answer == "yes"]
+    matches += _code_matches(settings, company, posted, today)
+    rejected = [m for m in matches if m.reject]
+    if rejected:
+        return Verdict(status="rejected", score=0,
+                       reasons=[f"rejected: {m.label} ({m.evidence!r})" for m in rejected])
+    counted = [m for m in matches if m.group is None]
+    for group in dict.fromkeys(m.group for m in matches if m.group is not None):
+        members = [m for m in matches if m.group == group]
+        if any(not m.absence for m in members):
+            members = [m for m in members if not m.absence]
+        counted.append(max(members, key=lambda m: m.points))
+    counted.sort(key=matches.index)         # in the order of the settings
+    return Verdict(status="new", score=sum(m.points for m in counted),
+                   reasons=[f"{m.label} ({m.points:+d}): {m.evidence!r}" for m in counted])

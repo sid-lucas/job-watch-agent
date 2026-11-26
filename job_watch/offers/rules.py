@@ -18,6 +18,7 @@ from pydantic import BaseModel, ConfigDict, Field, model_validator
 
 from job_watch import config
 from job_watch.offers.checks import is_german_ad
+from job_watch.offers.criteria import names_in
 from job_watch.offers.listing_filter import location_verdict
 
 # Facts a rule can test, and what they hold
@@ -146,8 +147,7 @@ def applies(rule: Rule, facts: dict) -> bool:
     if op == "matches":
         return re.search(expected, str(value), re.IGNORECASE) is not None
     if op == "in_names":
-        return any(name.strip() and re.search(rf"(?<!\w){re.escape(name)}(?!\w)", str(value), re.IGNORECASE)
-                   for name in expected)
+        return names_in(str(value), expected) is not None
     return False
 
 
