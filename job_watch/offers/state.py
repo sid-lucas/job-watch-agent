@@ -13,18 +13,30 @@ class Offer(TypedDict):
     published: str       # publication date from the source
     fetched: str         # date the offer was collected
 
-    # Career-site offers only
-    list_url: NotRequired[str]                  # job list where the offer was seen
+    # Triage (offers.triage): RSS and career-site offers
+    domain: NotRequired[str | None]
+    category: NotRequired[str | None]
+    secondary_category: NotRequired[str | None]
+
+    # Career-site offers only: list URL, and the detail fact sheet (each fact checked in the page)
+    list_url: NotRequired[str]
     detail_summary: NotRequired[str]
     requirements: NotRequired[list[str]]
+    city: NotRequired[str]
+    country: NotRequired[str]
+    seniority: NotRequired[str]
+    experience_years: NotRequired[int | None]
+    experience_requirement: NotRequired[str]
+    languages: NotRequired[list[dict]]
     contract: NotRequired[str]
     workload: NotRequired[str]
+    salary: NotRequired[str]
+    education: NotRequired[str]
     ad_language: NotRequired[str]
-    required_languages: NotRequired[list[str]]
 
-    # Filled by apply_flags
+    # Filled by apply_rules (offers/rules.py)
     score: NotRequired[int]
-    reasons: NotRequired[list[str]]   # why the score is what it is
+    reasons: NotRequired[list[str]]   # bonuses with their points, or the dealbreakers that rejected the offer
     status: NotRequired[str]          # "new" or "rejected"
 
 

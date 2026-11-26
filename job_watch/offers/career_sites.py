@@ -57,12 +57,16 @@ def to_offers(collection: CompanyCollection, details: DetailCollection, fetched:
     for listed in collection.new_kept:
         offer = Offer(key=listed.key, title=listed.title, company=collection.company, location=listed.location,
                       description="", source=SOURCE, link=listed.link, published="", fetched=fetched,
-                      list_url=collection.url)
+                      list_url=collection.url, domain=listed.domain, category=listed.category,
+                      secondary_category=listed.secondary_category)
         if detail := by_key.get(listed.key):
             offer.update(description=details.texts.get(listed.key, ""), published=detail.posted,
                          detail_summary=detail.summary, requirements=detail.requirements,
-                         contract=detail.contract, workload=detail.workload, ad_language=detail.ad_language,
-                         required_languages=list(detail.required_languages))
+                         category=detail.category or listed.category, city=detail.city, country=detail.country,
+                         seniority=detail.seniority, experience_years=detail.experience_years,
+                         experience_requirement=detail.experience_requirement, languages=detail.languages,
+                         contract=detail.contract, workload=detail.workload, salary=detail.salary,
+                         education=detail.education, ad_language=detail.ad_language)
         offers.append(offer)
     return offers
 

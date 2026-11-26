@@ -46,9 +46,9 @@ def main():
     offers = load_offers(args.db, args.limit)
     local = tuple(m for m in config.TRIAGE_CHAIN if m[0] == "ollama")
     cloud = tuple(m for m in config.CLOUD_MODELS if m[0] == "gemini")
-    local_size = args.batch_size or batch_size(local)
+    local_size = args.batch_size or batch_size(local[0])
     print(f"{len(offers)} titles; qwen {local} batch {local_size}, think {args.qwen_think}; "
-          f"gemini {cloud} batch {batch_size(cloud)}", flush=True)
+          f"gemini {cloud} batch {batch_size(cloud[0])}", flush=True)
 
     def log(line):
         print(f"  {line}", flush=True)

@@ -1,4 +1,3 @@
-import re
 from datetime import datetime, timezone
 from email.utils import parsedate_to_datetime
 from urllib.parse import urlsplit, urlunsplit
@@ -7,7 +6,9 @@ import feedparser
 from bs4 import BeautifulSoup
 
 from job_watch import config
+from job_watch.offers.rules import facts_of, judge
 from job_watch.offers.state import JobState, Offer
+from job_watch.offers.triage import TriageInput, triage_offers
 
 from job_watch.offers import storage
 
@@ -73,52 +74,31 @@ def fetch_rss(state: JobState) -> dict:
     return {"offers": state.get("offers", []) + offers}
 
 
-def filter_keywords(state: JobState) -> dict:
-    """Node: keep only RSS offers that contain at least one keyword (whole words).
-
-    Career-site offers were already kept by the triage and the listing filter: not filtered again.
-    """
-    patterns = [re.compile(rf"\b{re.escape(k)}\b", re.IGNORECASE) for k in config.KEYWORDS]
-
-    kept = []
-    for offer in state["offers"]:
-        text = f"{offer['title']} {offer['description']}"
-        if offer["source"] == "career_site" or any(p.search(text) for p in patterns):
-            kept.append(offer)
-
-    print(f"filter_keywords: {len(kept)} / {len(state['offers'])} offers kept")
-    return {"offers": kept}
+def triage_rss(state: JobState) -> dict:
+    """Node: triage of the new RSS offers (title, company; the feed gives no location), as for career sites."""
+    offers = [dict(o) for o in state.get("offers", [])]
+    known = storage.known_offers()
+    todo = [o for o in offers if o["source"] != "career_site" and (o["company"], o["key"]) not in known]
+    if not todo:
+        return {"offers": offers}
+    verdicts = triage_offers([TriageInput(title=o["title"], location=o["location"], company=o["company"])
+                              for o in todo], log=lambda line: print(f"  {line}", flush=True))
+    for offer, verdict in zip(todo, verdicts):
+        offer.update(domain=verdict.domain, category=verdict.category, secondary_category=verdict.secondary)
+    print(f"triage_rss: {len(todo)} new RSS offers triaged")
+    return {"offers": offers}
 
 
-def rule_matches(rule: dict, offer: Offer) -> bool:
-    """Return True when a rule matches its field of the offer."""
-    text = offer[rule["field"]]    
-    if "check" in rule:
-        return rule["check"](text)
-    return re.search(rule["pattern"], text, re.IGNORECASE) is not None
-
-
-def apply_flags(state: JobState) -> dict:
-    """Node: reject offers with red flags, score the others."""
+def apply_rules(state: JobState) -> dict:
+    """Node: dealbreakers and bonuses of offers/rules.py on the facts of each offer (no LLM)."""
     offers = []
     for original in state["offers"]:
         offer = dict(original)  # work on a copy, never modify the input state
-
-        rejected_by = [r["name"] for r in config.REJECT_RULES if rule_matches(r, offer)]
-        if rejected_by:
-            offer["status"] = "rejected"
-            offer["score"] = 0
-            offer["reasons"] = [f"rejected: {name}" for name in rejected_by]
-        else:
-            matched = [r for r in config.SCORE_RULES if rule_matches(r, offer)]
-            offer["status"] = "new"
-            offer["score"] = sum(r["points"] for r in matched)
-            offer["reasons"] = [f"{r['name']} ({r['points']:+d})" for r in matched]
-
+        verdict = judge(facts_of(offer))
+        offer.update(status=verdict.status, score=verdict.score, reasons=verdict.reasons)
         offers.append(offer)
-
     kept = sum(1 for o in offers if o["status"] == "new")
-    print(f"apply_flags: {kept} kept, {len(offers) - kept} rejected")
+    print(f"apply_rules: {kept} kept, {len(offers) - kept} rejected")
     return {"offers": offers}
 
 

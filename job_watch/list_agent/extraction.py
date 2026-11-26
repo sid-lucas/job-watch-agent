@@ -112,6 +112,7 @@ class CheckedOffer(BaseModel):
     category: str | None = None             # Technology/IT only
     secondary_category: str | None = None
     category_reason: str = ""
+    rejected_by: list[str] = []             # dealbreakers on the listing facts (offers.rules), empty: kept
 
 
 def _fold(text: str) -> tuple[str, list[int]]:

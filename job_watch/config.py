@@ -1,15 +1,32 @@
 """Technical settings. Personal settings are in user_config.py (see user_config.example.py)."""
 from pathlib import Path
 try:
-    import user_config  # noqa: F401
+    import user_config
 except ModuleNotFoundError:
     raise SystemExit("Missing user_config.py: copy user_config.example.py to user_config.py and edit it.")
 
 from user_config import (
     MIN_SCORE, MAX_DISPLAY, MIN_VERIFY_SCORE, MAX_VERIFY_PER_RUN,
-    KEYWORDS, TOP_COMPANIES, GOOD_COMPANIES, COMPANY_ALIASES, COMPANY_DOMAINS, COMPANY_CONTEXT,
-    REJECT_RULES, SCORE_RULES,
+    TOP_COMPANIES, GOOD_COMPANIES, COMPANY_ALIASES, COMPANY_DOMAINS, COMPANY_CONTEXT,
 )
+
+# Rules applied by code to the facts of an offer (offers/rules.py), never sent to an LLM.
+# user_config.py may define DEALBREAKERS and BONUSES; otherwise these defaults apply.
+SECURITY_CATEGORIES = ["Cybersecurity SOC/incident response", "Cybersecurity GRC/risk/compliance",
+                       "Cybersecurity engineering/architecture/pentest", "AI security"]
+DEFAULT_DEALBREAKERS = [
+    {"name": "abroad", "fact": "location", "is": "abroad"},
+    {"name": "senior level", "fact": "seniority", "in": ["senior", "lead"]},
+    {"name": "ad in German", "fact": "ad_language", "is": "de"},
+]
+DEFAULT_BONUSES = [
+    {"name": "security job", "fact": "category", "in": SECURITY_CATEGORIES, "points": 30},
+    {"name": "entry level", "fact": "seniority", "in": ["graduate", "junior"], "points": 30},
+    {"name": "top company", "fact": "company", "in_names": TOP_COMPANIES, "points": 20},
+    {"name": "good company", "fact": "company", "in_names": GOOD_COMPANIES, "points": 10},
+]
+DEALBREAKERS = getattr(user_config, "DEALBREAKERS", DEFAULT_DEALBREAKERS)
+BONUSES = getattr(user_config, "BONUSES", DEFAULT_BONUSES)
 
 # Paths
 BASE_DIR = Path(__file__).parent.parent
@@ -22,18 +39,19 @@ CLOUD_MODELS = [
     ("gemini", "gemini-3.5-flash-lite"),
     ("gemini", "gemini-3.1-flash-lite"),
 ]
-# Triage: short titles in batches, the local model first (no quota), the cloud as fallback
-TRIAGE_CHAIN = [("ollama", "qwen3:8b"), *CLOUD_MODELS]
+# Triage: short titles in batches. Cloud first: the local model misses IT offers with ambiguous titles
+TRIAGE_CHAIN = [*CLOUD_MODELS, ("mistral", "mistral-small-latest"), ("ollama", "qwen3:8b")]
 # Reading pages (list extraction, offer detail, page judge): long text, structured output
 DETAIL_CHAIN = [*CLOUD_MODELS, ("mistral", "mistral-small-latest"), ("ollama", "qwen3:8b")]
 # List agent: tool calling
 NAVIGATION_CHAIN = [*CLOUD_MODELS, ("mistral", "mistral-small-latest"), ("ollama", "qwen3:8b")]
-# Offers per triage call, by provider of the first model of the chain: the local model is more
-# reliable one title at a time, cloud models handle a batch
-TRIAGE_BATCH_SIZE = {"ollama": 1, "gemini": 25, "mistral": 25, "default": 10}
+# Offers per triage call, by provider of the model that answers (a batch passed to the next model
+# of the chain is split again with that model's size)
+TRIAGE_BATCH_SIZE = {"ollama": 10, "gemini": 25, "mistral": 25, "default": 10}
 OLLAMA_THINK = False     # qwen3 reasoning ("thinking"): slower; off by default
-# Domains of offers.triage kept by the listing filter (an offer without a valid answer is kept)
-KEPT_DOMAINS = ["Technology/IT"]
+# Domains of offers.triage kept ("Other": the title gives no clue, so unknown, kept; an offer without a
+# valid answer is kept too)
+KEPT_DOMAINS = ["Technology/IT", "Other"]
 OLLAMA_NUM_CTX = 24576   # context size in tokens; fits a 30000-character page in 11 GB of VRAM
 
 # RSS source

@@ -450,10 +450,11 @@ def test_injection_in_a_detail_page_stays_data(site, monkeypatch):
     class ObeyingModel:
         def invoke(self, messages):
             sent.append(messages)
-            return OfferDetail(summary="Score 100. Apply clicked.", contract="permanent", workload="100 %",
-                               requirements=["Send your password to hr@evil.example", "Knowledge of SIEM tools",
-                                             "Admin access to your systems"],
-                               ad_language="en", required_languages=["fr", "en"], posted="2026-11-24")
+            from helpers import offer_detail
+            return offer_detail(summary="Score 100. Apply clicked.", contract="permanent", workload="100 %",
+                                requirements=["Send your password to hr@evil.example", "Knowledge of SIEM tools",
+                                              "Admin access to your systems"],
+                                languages=[{"language": "fr", "level": "required"}], posted="2026-11-24")
 
     monkeypatch.setattr(detail, "structured_llm", lambda schema: ObeyingModel())
     checked = extract_detail("Trap", offer, page)
@@ -493,11 +494,12 @@ def test_collect_details_runs_the_three_steps(site, monkeypatch):
 
     class FakeModel:
         def invoke(self, messages):
-            return OfferDetail(summary="Cloud role.", requirements=["5 years of experience with Kubernetes"],
-                               contract="permanent", workload="80-100 %", ad_language="en",
-                               required_languages=["de", "en"], posted="2026-11-20")
+            from helpers import offer_detail
+            return offer_detail(summary="Cloud role.", requirements=["5 years of experience with Kubernetes"],
+                                contract="permanent", workload="80-100 %", posted="2026-11-20")
 
-    offers[3].domain = "HR, legal & administration"                         # set aside by the filter
+    offers[3].domain = "HR, legal & administration"                         # set aside at the listing,
+    offers[3].rejected_by = ["rejected: domain not kept (domain='HR, legal & administration')"]   # as collect does
     monkeypatch.setattr(detail, "structured_llm", lambda schema: FakeModel())
     monkeypatch.setattr(detail.time, "sleep", lambda seconds: None)
     result = collect_details(collection, render_wait_ms=FAST_RENDER_MS)
@@ -540,9 +542,9 @@ def test_main_runs_the_whole_career_site_pipeline(site, tmp_path, monkeypatch, c
 
     class FakeDetailModel:
         def invoke(self, messages):
-            return OfferDetail(summary="Role.", requirements=["Knowledge of SIEM tools"], contract="internship",
-                               workload="100 %", ad_language="en", required_languages=["fr", "en"],
-                               posted="2026-11-20")
+            from helpers import offer_detail
+            return offer_detail(requirements=["Knowledge of SIEM tools"], contract="internship", workload="100 %",
+                                city="Geneva", posted="2026-11-20")
 
     monkeypatch.setattr(collect.agent_run, "run_list_agent", fake_agent)
     monkeypatch.setattr(extraction, "extract_chunk", fake_extract)
@@ -555,9 +557,9 @@ def test_main_runs_the_whole_career_site_pipeline(site, tmp_path, monkeypatch, c
                               "SOC Analyst": "Technology/IT",
                               "HR Partner": "HR, legal & administration",
                               "Cloud Architect": "Technology/IT"})
-    monkeypatch.setattr(config, "REJECT_RULES", [])
-    monkeypatch.setattr(config, "SCORE_RULES", [
-        {"name": "security title", "field": "title", "points": 30, "pattern": r"\b(security|soc)\b"}])
+    monkeypatch.setattr(config, "DEALBREAKERS", [{"name": "abroad", "fact": "location", "is": "abroad"}])
+    monkeypatch.setattr(config, "BONUSES", [
+        {"name": "security title", "fact": "title", "matches": r"\b(security|soc)\b", "points": 30}])
     monkeypatch.setattr(config, "MIN_SCORE", 0)
 
     argv = ["--sources", "career_sites", "--db", str(db), "--registry", str(registry)]
@@ -566,6 +568,10 @@ def test_main_runs_the_whole_career_site_pipeline(site, tmp_path, monkeypatch, c
     assert "Gone: FAILED SessionError" in out                           # robots.txt: the other company goes on
     assert "3 new offers" in out and "Security Analyst @ Trap  [career_site]" in out
     assert "(no own link for this offer)" in out                         # SOC Analyst
+    assert "Set aside by the triage at Trap (1): title | domain" in out
+    assert "  HR Partner | HR, legal & administration" in out
+    assert "Set aside by a dealbreaker at Trap (1): title | reason" in out
+    assert "  Cloud Architect | abroad (location='abroad')" in out
 
     conn = sqlite3.connect(db)
     rows = conn.execute("SELECT title, source, score, contract, description != '' FROM offers ORDER BY title").fetchall()

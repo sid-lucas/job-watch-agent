@@ -3,7 +3,8 @@ category only for Technology/IT.
 
 The LLM only states facts from closed lists in code (general, never the user's preferences) and
 never gives a score: the rules of the code decide what to keep. Offers are sent in batches whose
-size depends on the provider of the first model (TRIAGE_BATCH_SIZE). Every answer is checked in
+size depends on the provider of the model asked (TRIAGE_BATCH_SIZE); what a model leaves without a
+valid answer goes to the next model of the chain, split with that model's size. Every answer is checked in
 code: unknown ids are ignored, the first answer per id wins, a category is kept only for
 Technology/IT. An offer without a valid answer has no domain: it is kept (never set aside on a
 fact that is not known).
@@ -100,18 +101,19 @@ Rules:
 - "Security" or "sécurité" without any cyber, IT or information word is "Security & safety (physical)".
 - Engineers and technicians outside IT are "Engineering & R&D (non-IT)".
 - Use "Other" only when the title gives no clue at all; otherwise choose the closest domain.
+- When in doubt between Technology/IT and another domain, choose Technology/IT.
 Only for "Technology/IT", also give its category, and a second one only when the job clearly spans two:
 """ + " | ".join(TECH_CATEGORIES) + """
 For other domains, leave category and secondary empty. Answer for every offer, with its number."""
 
 
-def _prompt(batch: list[TriageInput], start: int) -> str:
-    lines = [f"[{start + i}] {_untrusted(o.title[:200])} | {_untrusted(o.location[:80])} | {_untrusted(o.company[:80])}"
-             for i, o in enumerate(batch)]
+def _prompt(batch: list[tuple[int, TriageInput]]) -> str:
+    lines = [f"[{i}] {_untrusted(o.title[:200])} | {_untrusted(o.location[:80])} | {_untrusted(o.company[:80])}"
+             for i, o in batch]
     return "<offers>\n" + "\n".join(lines) + "\n</offers>"
 
 
-def check_batch(answer: TriageBatch | None, ids: range) -> dict[int, Triage]:
+def check_batch(answer: TriageBatch | None, ids) -> dict[int, Triage]:
     """Valid answers by offer id: known ids only, the first answer wins, categories for Technology/IT only."""
     result: dict[int, Triage] = {}
     for item in (answer.items if answer else []):
@@ -125,32 +127,45 @@ def check_batch(answer: TriageBatch | None, ids: range) -> dict[int, Triage]:
     return result
 
 
-def batch_size(models: tuple[tuple[str, str], ...] | None = None) -> int:
-    """Offers per call, for the provider of the first model of the chain (the one meant to answer)."""
-    provider = (models or llm_chain("triage"))[0][0]
-    return config.TRIAGE_BATCH_SIZE.get(provider, config.TRIAGE_BATCH_SIZE["default"])
+def batch_size(model: tuple[str, str]) -> int:
+    """Offers per call for this model, by provider."""
+    return config.TRIAGE_BATCH_SIZE.get(model[0], config.TRIAGE_BATCH_SIZE["default"])
+
+
+def _triage_with(models: list[tuple[str, str]], items: list[tuple[int, TriageInput]], size: int | None,
+                 log: Callable[[str], None] | None) -> dict[int, Triage]:
+    """Valid answers by index, from the first model, then the next ones for what is left.
+
+    Each model gets the offers still without a valid answer, in batches of its own size: a batch
+    passed on after a failure (or partly answered) is split again for the next model.
+    """
+    if not items or not models:
+        return {}
+    model, rest = models[0], models[1:]
+    model_size = size or batch_size(model)
+    llm = structured_llm(TriageBatch, "triage", (model,))
+    results: dict[int, Triage] = {}
+    left: list[tuple[int, TriageInput]] = []
+    batches = (len(items) + model_size - 1) // model_size
+    for number, start in enumerate(range(0, len(items), model_size), 1):
+        batch = items[start:start + model_size]
+        answer = call_with_retry(llm.invoke, [("system", SYSTEM), ("user", _prompt(batch))])
+        valid = check_batch(answer, {index for index, _ in batch})
+        results.update(valid)
+        left += [(index, offer) for index, offer in batch if index not in valid]
+        if log and (model_size > 1 or number % 10 == 0 or number == batches):
+            missing = len(batch) - len(valid)
+            log(f"triage {model[1]} {number}/{batches}: {len(batch)} offers"
+                + (f", {missing} without a valid answer" + (", next model" if rest else " (kept)") if missing else ""))
+    return results | _triage_with(rest, left, size, log)
 
 
 def triage_offers(offers: list[TriageInput], log: Callable[[str], None] | None = None,
                   models: tuple[tuple[str, str], ...] | None = None, size: int | None = None) -> list[Triage]:
     """One Triage per offer, in the same order. models: a fixed chain instead of TRIAGE_CHAIN;
-    size: offers per call instead of TRIAGE_BATCH_SIZE."""
-    if not offers:
-        return []
-    size = size or batch_size(models)
-    results: list[Triage] = []
-    batches = (len(offers) + size - 1) // size
-    for number, start in enumerate(range(0, len(offers), size), 1):
-        batch = offers[start:start + size]
-        llm = structured_llm(TriageBatch, "triage", models)
-        answer = call_with_retry(llm.invoke, [("system", SYSTEM), ("user", _prompt(batch, start))])
-        valid = check_batch(answer, range(start, start + len(batch)))
-        results += [valid.get(start + i, Triage(reason="no valid answer")) for i in range(len(batch))]
-        if log and (size > 1 or number % 10 == 0 or number == batches):
-            missing = sum(1 for i in range(len(batch)) if start + i not in valid)
-            log(f"triage {number}/{batches}: {len(batch)} offers"
-                + (f", {missing} without a valid answer (kept)" if missing else ""))
-    return results
+    size: offers per call for every model instead of TRIAGE_BATCH_SIZE."""
+    valid = _triage_with(list(models or llm_chain("triage")), list(enumerate(offers)), size, log)
+    return [valid.get(index, Triage(reason="no valid answer")) for index in range(len(offers))]
 
 
 # ---------- comparison of two models ----------

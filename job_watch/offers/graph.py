@@ -1,7 +1,7 @@
 from langgraph.graph import StateGraph, START, END
 
 from job_watch.offers.career_sites import fetch_career_sites
-from job_watch.offers.nodes import fetch_rss, filter_keywords, deduplicate, apply_flags, save_results
+from job_watch.offers.nodes import fetch_rss, triage_rss, deduplicate, apply_rules, save_results
 from job_watch.offers.state import JobState
 
 
@@ -12,18 +12,18 @@ def build_graph():
     # Nodes
     builder.add_node("fetch_rss", fetch_rss)
     builder.add_node("fetch_career_sites", fetch_career_sites)
-    builder.add_node("filter_keywords", filter_keywords)
+    builder.add_node("triage_rss", triage_rss)
     builder.add_node("deduplicate", deduplicate)
-    builder.add_node("apply_flags", apply_flags)
+    builder.add_node("apply_rules", apply_rules)
     builder.add_node("save_results", save_results)
 
     # Edges
     builder.add_edge(START, "fetch_rss")
-    builder.add_edge("fetch_rss", "fetch_career_sites")
-    builder.add_edge("fetch_career_sites", "filter_keywords")
-    builder.add_edge("filter_keywords", "deduplicate")
-    builder.add_edge("deduplicate", "apply_flags")
-    builder.add_edge("apply_flags", "save_results")
+    builder.add_edge("fetch_rss", "triage_rss")
+    builder.add_edge("triage_rss", "fetch_career_sites")
+    builder.add_edge("fetch_career_sites", "deduplicate")
+    builder.add_edge("deduplicate", "apply_rules")
+    builder.add_edge("apply_rules", "save_results")
     builder.add_edge("save_results", END)
 
     return builder.compile()

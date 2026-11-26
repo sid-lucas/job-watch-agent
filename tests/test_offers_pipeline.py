@@ -94,9 +94,9 @@ def details(company, items, texts):
 
 
 def checked_detail(key):
-    return CheckedDetail(key=key, summary="Role.", requirements=["SIEM tools"], contract="internship",
-                         contract_doubtful=False, workload="100 %", ad_language="en", required_languages=["fr"],
-                         posted="2026-11-20", dropped_requirements=0)
+    from helpers import checked_detail as build
+    return build(key, requirements=["SIEM tools"], contract="internship", workload="100 %", city="Genève",
+                 seniority="junior", languages=[{"language": "fr", "level": "required"}], posted="2026-11-20")
 
 
 def test_to_offers_keeps_offers_without_detail():
@@ -185,3 +185,104 @@ def test_the_node_prints_why_a_company_is_not_collected(capsys):
     out = capsys.readouterr().out
     assert "fetch_career_sites: 0 companies" in out
     assert "not collected: ICRC: registry status 'blocked'" in out and "not collected: Rolex: not in the registry" in out
+
+
+# ---------- rules, RSS, rejected offers kept, rescore ----------
+
+@pytest.fixture
+def user_rules(monkeypatch):
+    monkeypatch.setattr(config, "KEPT_DOMAINS", ["Technology/IT", "Other"])
+    monkeypatch.setattr(config, "DEALBREAKERS", [{"name": "senior level", "fact": "seniority", "in": ["senior"]}])
+    monkeypatch.setattr(config, "BONUSES", [
+        {"name": "security job", "fact": "category", "in": ["Cybersecurity SOC/incident response"], "points": 30}])
+
+
+def test_rss_offers_go_through_the_same_triage_and_rules(user_rules, monkeypatch):
+    from job_watch.offers import nodes
+    from job_watch.offers.triage import Triage
+    storage.save_offers([rss_offer("https://rss.example/known")])                        # already stored
+    asked = []
+
+    def fake_triage(offers, log=None, models=None):
+        asked.extend(o.title for o in offers)
+        return [Triage(domain="Technology/IT", category="Cybersecurity SOC/incident response", answered=True),
+                Triage(domain="Finance, banking & accounting", answered=True),
+                Triage(domain="Technology/IT", category="Software engineering", answered=True)][:len(offers)]
+
+    monkeypatch.setattr(nodes, "triage_offers", fake_triage)
+    state = {"offers": [rss_offer("https://rss.example/1", "SOC Analyst"), rss_offer("https://rss.example/2", "Accountant"),
+                        rss_offer("https://rss.example/3", "Senior Developer"),
+                        rss_offer("https://rss.example/known", "Known")]}
+    triaged = nodes.triage_rss(state)
+    assert asked == ["SOC Analyst", "Accountant", "Senior Developer"]                    # new RSS offers only
+    judged = {o["title"]: (o["status"], o["score"], o["reasons"]) for o in nodes.apply_rules(triaged)["offers"]}
+    assert judged["SOC Analyst"] == ("new", 30, ["security job (+30)"])
+    assert judged["Accountant"][0] == "rejected" and judged["Accountant"][2][0].startswith("rejected: domain not kept")
+    assert judged["Senior Developer"][0] == "rejected"                                    # seniority from the title
+
+
+def test_rejected_offers_are_stored_with_their_reasons(user_rules):
+    from job_watch.offers.nodes import apply_rules, save_results
+    offers = apply_rules({"offers": [{**rss_offer("https://rss.example/9", "Senior SOC Analyst"),
+                                      "domain": "Technology/IT"}]})["offers"]
+    save_results({"offers": offers})
+    conn = storage.connect()
+    status, reasons = conn.execute("SELECT status, reasons FROM offers").fetchone()
+    conn.close()
+    assert status == "rejected" and json.loads(reasons) == ["rejected: senior level (seniority='senior')"]
+
+
+def test_rescore_applies_new_rules_without_any_llm(user_rules, monkeypatch):
+    from job_watch.offers.listed import connect as connect_listed, save_listed_offers
+    from job_watch.offers.nodes import apply_rules, save_results
+    from job_watch.offers.rescore import rescore
+    from job_watch.offers.rules import kept, listing_rejections
+    offer = {**rss_offer("https://bank.example/a", "SOC Analyst"), "key": "a", "source": "career_site",
+             "domain": "Technology/IT", "category": "Cybersecurity SOC/incident response", "city": "Zurich",
+             "languages": [{"language": "de", "level": "required"}]}
+    save_results({"offers": apply_rules({"offers": [offer]})["offers"]})
+    abroad = listed("b", "Security Engineer")
+    abroad.location, abroad.domain = "Singapore", "Technology/IT"
+    conn = connect_listed()
+    abroad.rejected_by = listing_rejections(abroad, "Bank")                     # no "abroad" rule yet: kept
+    save_listed_offers(conn, "Bank", [abroad], "2026-11-26", keep=kept)
+    conn.close()
+
+    monkeypatch.setattr(config, "DEALBREAKERS", [
+        {"name": "German required", "fact": "languages_required", "contains": "de"},
+        {"name": "abroad", "fact": "location", "is": "abroad"}])
+    report = rescore()
+    assert [(c.title, c.before, c.after) for c in report.offer_changes] == [("SOC Analyst", "kept, score 30", "rejected")]
+    assert [(c.title, c.before, c.after) for c in report.listed_changes] == [("Security Engineer", "kept", "set aside")]
+    conn = storage.connect()
+    assert conn.execute("SELECT status FROM offers").fetchone() == ("rejected",)
+    assert conn.execute("SELECT kept, reject_reason FROM listed_offers").fetchone() == (
+        0, "rejected: abroad (location='abroad')")
+    conn.close()
+
+
+def test_rescore_dry_run_writes_nothing(user_rules, monkeypatch):
+    from job_watch.offers.nodes import apply_rules, save_results
+    from job_watch.offers.rescore import rescore
+    save_results({"offers": apply_rules({"offers": [{**rss_offer("https://x.example/1", "SOC Analyst"),
+                                                    "domain": "Technology/IT"}]})["offers"]})
+    monkeypatch.setattr(config, "DEALBREAKERS", [{"name": "all", "fact": "domain", "is": "Technology/IT"}])
+    assert len(rescore(write=False).offer_changes) == 1
+    conn = storage.connect()
+    assert conn.execute("SELECT status FROM offers").fetchone() == ("new",)
+    conn.close()
+
+
+def test_fact_columns_are_added_to_an_existing_offers_table():
+    conn = sqlite3.connect(config.DB_PATH)
+    conn.execute("CREATE TABLE offers (company TEXT NOT NULL, key TEXT NOT NULL, link TEXT, title TEXT NOT NULL, "
+                 "location TEXT, description TEXT, source TEXT, published TEXT, fetched TEXT, score INTEGER, "
+                 "reasons TEXT, status TEXT, required_languages TEXT, PRIMARY KEY (company, key))")
+    conn.execute("INSERT INTO offers (company, key, title, status) VALUES ('Bank', 'a', 'Analyst', 'new')")
+    conn.commit()
+    conn.close()
+    conn = storage.connect()
+    columns = {row[1] for row in conn.execute("PRAGMA table_info(offers)")}
+    assert set(storage.FACT_COLUMNS) <= columns
+    assert conn.execute("SELECT title FROM offers").fetchall() == [("Analyst",)]
+    conn.close()

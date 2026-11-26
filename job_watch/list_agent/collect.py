@@ -17,7 +17,7 @@ from job_watch.list_agent.detail import CheckedDetail, DetailPage, Skipped, extr
 from job_watch.list_agent.extraction import CheckedOffer, extract_observations
 from job_watch.llm import calls_since, model_calls
 from job_watch.offers.listed import known_keys, now_iso, save_listed_offers
-from job_watch.offers.listing_filter import keep
+from job_watch.offers.rules import kept as keep, listing_rejections
 from job_watch.offers.triage import TriageInput, triage_offers
 
 
@@ -57,6 +57,7 @@ def collect_company(company: str, url: str, conn: sqlite3.Connection,
     for offer, verdict in zip(to_triage, verdicts):
         offer.domain, offer.category, offer.secondary_category = verdict.domain, verdict.category, verdict.secondary
         offer.category_reason = verdict.reason
+        offer.rejected_by = listing_rejections(offer, company)      # dealbreakers known from the list
     return CompanyCollection(
         company=company, url=url, stop=run.stop, pages_reached=agent_run.pages_reached(run.trail),
         offers=extraction.offers, new_keys=new_keys, seen=now_iso(),

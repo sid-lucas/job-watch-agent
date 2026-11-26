@@ -49,9 +49,13 @@ def main():
     for page in details.refused_pages:
         print(f"  refused: {page.key} {page.failure} ({page.detail})")
     for d in details.details:
-        print(f"  {d.key}: {d.contract}{' (doubtful)' if d.contract_doubtful else ''}, {d.workload or '-'}, "
-              f"ad {d.ad_language}, needs {d.required_languages}, posted {d.posted or '-'}, "
-              f"{len(d.requirements)} requirements ({d.dropped_requirements} dropped)")
+        languages = ", ".join(f"{n['language']} {n['level']}" for n in d.languages) or "-"
+        print(f"  {d.key}: {d.city}, {d.country}; {d.seniority}; {d.contract}"
+              f"{' (doubtful)' if d.contract_doubtful else ''}, {d.workload or '-'}; "
+              f"experience {d.experience_years or '-'} {d.experience_requirement}; languages {languages}; "
+              f"education {d.education}; salary {d.salary or '-'}; posted {d.posted or '-'}; "
+              f"{len(d.requirements)} requirements ({d.dropped_requirements} dropped)"
+              + (f"; not supported by the page: {', '.join(d.unchecked)}" if d.unchecked else ""))
 
 
 if __name__ == "__main__":

@@ -30,10 +30,12 @@ CREATE TABLE IF NOT EXISTS listed_offers (
     category            TEXT,       -- Technology/IT only
     secondary_category  TEXT,
     category_reason     TEXT,
+    reject_reason       TEXT,       -- dealbreakers that set the offer aside, when kept = 0
     PRIMARY KEY (company, key)
 )
 """
-ADDED_COLUMNS = {"domain": "TEXT", "category": "TEXT", "secondary_category": "TEXT", "category_reason": "TEXT"}
+ADDED_COLUMNS = {"domain": "TEXT", "category": "TEXT", "secondary_category": "TEXT", "category_reason": "TEXT",
+                 "reject_reason": "TEXT"}
 
 
 def connect(path: Path | None = None) -> sqlite3.Connection:
@@ -74,12 +76,12 @@ def save_listed_offers(conn: sqlite3.Connection, company: str, offers: list[Chec
     conn.executemany(
         """
         INSERT INTO listed_offers (company, key, title, location, link, verified, first_seen, last_seen, kept,
-                                   domain, category, secondary_category, category_reason)
-        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                                   domain, category, secondary_category, category_reason, reject_reason)
+        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
         """,
         [(company, o.key, o.title, o.location, o.link, int(o.verified), seen, seen,
-          None if keep is None else int(keep(o)), o.domain, o.category, o.secondary_category, o.category_reason)
-         for o in new],
+          None if keep is None else int(keep(o)), o.domain, o.category, o.secondary_category, o.category_reason,
+          "; ".join(o.rejected_by)) for o in new],
     )
     conn.executemany(
         "UPDATE listed_offers SET last_seen = ? WHERE company = ? AND key = ?",

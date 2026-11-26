@@ -37,6 +37,24 @@ def parse_args(argv: list[str] | None = None) -> argparse.Namespace:
     return args
 
 
+def show_set_aside_at_listing(result: dict) -> None:
+    """New career-site offers set aside before the detail, by company, to be read by eye:
+    first those whose domain is not kept (title | domain), then the other dealbreakers (title | reason)."""
+    for collection in result.get("collections", []):
+        new = set(collection.new_keys)
+        aside = [o for o in collection.offers if o.key in new and o.rejected_by]
+        by_domain = [o for o in aside if o.rejected_by[0].startswith("rejected: domain not kept")]
+        by_rule = [o for o in aside if o not in by_domain]
+        if by_domain:
+            print(f"\nSet aside by the triage at {collection.company} ({len(by_domain)}): title | domain")
+            for offer in by_domain:
+                print(f"  {offer.title[:90]} | {offer.domain}")
+        if by_rule:
+            print(f"\nSet aside by a dealbreaker at {collection.company} ({len(by_rule)}): title | reason")
+            for offer in by_rule:
+                print(f"  {offer.title[:90]} | {'; '.join(r.removeprefix('rejected: ') for r in offer.rejected_by)}")
+
+
 def show(result: dict) -> None:
     """Print the new offers of the run, best scores first, as in V1."""
     new_pairs = set(map(tuple, result.get("new_offers", [])))
@@ -56,8 +74,10 @@ def show(result: dict) -> None:
     for o in good[:config.MAX_DISPLAY]:
         print(f"\n{o['score']:4d}  {o['title']} @ {o['company']}  [{o['source']}]")
         print(f"      {', '.join(o['reasons'])}")
-        if o.get("contract") or o.get("workload"):
-            print(f"      {o.get('location', '')}, {o.get('contract') or '-'}, {o.get('workload') or '-'}")
+        facts = [o.get("city") or o.get("location"), o.get("seniority"), o.get("contract"), o.get("workload")]
+        facts = [f for f in facts if f and f != "unknown"]
+        if facts:
+            print(f"      {', '.join(facts)}")
         if o["link"]:
             print(f"            Offer:  {o['link']}")
         else:
@@ -83,6 +103,7 @@ def main(argv: list[str] | None = None) -> dict:
         state["companies"] = args.companies
     result = build_graph().invoke(state)
     show(result)
+    show_set_aside_at_listing(result)
     return result
 
 

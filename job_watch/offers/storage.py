@@ -10,14 +10,19 @@ from collections.abc import Callable
 
 from job_watch import config
 
-COLUMNS = (
-    "company", "key", "link", "title", "location", "description", "source", "published", "fetched",
-    "score", "reasons", "status",
-    # career-site detail phase (empty for RSS offers and for career-site offers without detail)
-    "detail_summary", "requirements", "contract", "workload", "ad_language", "required_languages",
-)
+# Facts of an offer stored with it, so that rules and scores can be computed again without any LLM call
+# (scripts/rescore.py). JSON columns hold lists.
+FACT_COLUMNS = {
+    "domain": "TEXT", "category": "TEXT", "secondary_category": "TEXT",         # triage
+    "detail_summary": "TEXT", "requirements": "TEXT", "city": "TEXT", "country": "TEXT",   # detail fact sheet
+    "seniority": "TEXT", "experience_years": "INTEGER", "experience_requirement": "TEXT", "languages": "TEXT",
+    "contract": "TEXT", "workload": "TEXT", "salary": "TEXT", "education": "TEXT", "ad_language": "TEXT",
+}
+JSON_COLUMNS = {"requirements", "languages", "reasons"}
+COLUMNS = ("company", "key", "link", "title", "location", "description", "source", "published", "fetched",
+           "score", "reasons", "status", *FACT_COLUMNS)
 
-SCHEMA = """
+SCHEMA = f"""
 CREATE TABLE IF NOT EXISTS offers (
     company     TEXT NOT NULL,
     key         TEXT NOT NULL,
@@ -29,14 +34,9 @@ CREATE TABLE IF NOT EXISTS offers (
     published   TEXT,
     fetched     TEXT,
     score       INTEGER,
-    reasons     TEXT,
-    status      TEXT,
-    detail_summary      TEXT,      -- written by the LLM: data to read, never a checked fact
-    requirements        TEXT,      -- JSON list, each one quoted from the page
-    contract            TEXT,
-    workload            TEXT,
-    ad_language         TEXT,
-    required_languages  TEXT,      -- JSON list
+    reasons     TEXT,              -- JSON list: bonuses with their points, or the dealbreakers that rejected it
+    status      TEXT,              -- "new" (kept) or "rejected", recomputed by scripts/rescore.py
+    {", ".join(f"{name} {kind}" for name, kind in FACT_COLUMNS.items())},
     PRIMARY KEY (company, key)
 )
 """
@@ -69,19 +69,39 @@ def connect() -> sqlite3.Connection:
     if columns and "key" not in columns:
         _migrate_from_link_key(conn)
     conn.execute(SCHEMA)
+    columns = {row[1] for row in conn.execute("PRAGMA table_info(offers)")}
+    for name, kind in FACT_COLUMNS.items():         # table created before the fact sheet: add the columns
+        if name not in columns:
+            conn.execute(f"ALTER TABLE offers ADD COLUMN {name} {kind}")
+    conn.commit()
     return conn
 
 
 def _row(offer: dict) -> tuple:
-    return (
-        offer["company"], offer["key"], offer.get("link", ""), offer["title"], offer.get("location", ""),
-        offer.get("description", ""), offer.get("source", ""), offer.get("published", ""),
-        offer.get("fetched", ""), offer.get("score"), json.dumps(offer.get("reasons", [])),
-        offer.get("status", "new"), offer.get("detail_summary", ""),
-        json.dumps(offer.get("requirements", []), ensure_ascii=False), offer.get("contract", ""),
-        offer.get("workload", ""), offer.get("ad_language", ""),
-        json.dumps(offer.get("required_languages", [])),
-    )
+    def value(name):
+        found = offer.get(name)
+        if name in JSON_COLUMNS:
+            return json.dumps(found or [], ensure_ascii=False)
+        return found if found is not None or name in ("score", "experience_years") else ""
+    return tuple(value(name) if name != "status" else offer.get("status", "new") for name in COLUMNS)
+
+
+def row_to_offer(row: sqlite3.Row) -> dict:
+    """A stored offer as a dict, JSON columns decoded (for scripts/rescore.py)."""
+    offer = dict(row)
+    for name in JSON_COLUMNS:
+        if name in offer:
+            offer[name] = json.loads(offer[name] or "[]")
+    return offer
+
+
+def known_offers() -> set[tuple[str, str]]:
+    """(company, key) of the stored offers."""
+    conn = connect()
+    try:
+        return {(row[0], row[1]) for row in conn.execute("SELECT company, key FROM offers")}
+    finally:
+        conn.close()
 
 
 def save_offers(offers: list[dict],
