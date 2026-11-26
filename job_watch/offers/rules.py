@@ -12,7 +12,7 @@ known (after the triage on the listing facts, then again on the full facts after
 The score is the sum of the bonuses that apply, each one shown with its points.
 """
 import re
-from typing import Any
+from typing import Any, Literal
 
 from pydantic import BaseModel, ConfigDict, Field, model_validator
 
@@ -41,8 +41,15 @@ FACTS = {
     "salary": "salary as written, if shown",
     "education": "CFC, ES or HES-university",
     "ad_language": "language the ad is written in (en, fr, de, it, other)",
+    "min_years": "minimum years of experience asked (lower bound of a range, number)",
+    "salary_min": "lower bound of the salary stated by the employer, yearly CHF (number)",
+    "employer_type": "direct, or consulting_delegation (placement at a client)",
+    "workload_max": "maximum workload percentage (number, e.g. 100 for 80-100 %)",
+    "posted_days_ago": "days since publication (number)",
+    "contact_name": "name of a recruiter or hiring manager named in the ad",
 }
-OPERATORS = ("is", "in", "not_in", "contains", "above", "below", "matches", "in_names")
+OPERATORS = ("is", "in", "not_in", "contains", "above", "below", "gte", "gt", "lt", "exists", "matches",
+             "in_names")
 UNKNOWN = (None, "", "unknown")
 
 # Seniority read from words, for the title (the detail fact sheet checks its answer with the same words)
@@ -75,6 +82,10 @@ class Rule(BaseModel):
     contains: Any = None
     above: float | None = None
     below: float | None = None
+    gte: float | None = None
+    gt: float | None = None
+    lt: float | None = None
+    exists: Literal[True] | None = None     # only True: an unknown fact never applies, so False would never match
     matches: str | None = None
     in_names: list[str] | None = None
 
@@ -124,10 +135,14 @@ def applies(rule: Rule, facts: dict) -> bool:
         return _fold(value) not in {_fold(v) for v in expected}
     if op == "contains":
         return isinstance(value, list) and _fold(expected) in {_fold(v) for v in value}
-    if op in ("above", "below"):
-        if not isinstance(value, (int, float)):
+    if op in ("above", "below", "gte", "gt", "lt"):
+        if isinstance(value, bool) or not isinstance(value, (int, float)):
             return False
-        return value > expected if op == "above" else value < expected
+        if op == "gte":
+            return value >= expected
+        return value > expected if op in ("above", "gt") else value < expected
+    if op == "exists":
+        return True                 # the fact is known (checked above)
     if op == "matches":
         return re.search(expected, str(value), re.IGNORECASE) is not None
     if op == "in_names":
@@ -217,6 +232,13 @@ def facts_of(offer: dict) -> dict:
         "salary": offer.get("salary") or "",
         "education": offer.get("education") or "unknown",
         "ad_language": ad_language,
+        "min_years": years,
+        # Not extracted yet: unknown, so no rule applies to them
+        "salary_min": None,
+        "employer_type": None,
+        "workload_max": None,
+        "posted_days_ago": None,
+        "contact_name": None,
     }
 
 
