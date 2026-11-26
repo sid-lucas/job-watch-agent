@@ -1,20 +1,29 @@
 """Score stored offers with the criteria of user_config.py and compare with their stored score (read only).
 
-One LLM call per offer (DETAIL_CHAIN); nothing is written to the database.
+One LLM call per offer (DETAIL_CHAIN); nothing is written to the database. With --answers, the
+checked answers are saved to a JSON file after each offer and reused on the next run while the
+questions are the same: a run stopped halfway resumes, and a change of points, groups or code
+criteria needs no LLM call (--no-llm). Keep that file out of the repository (scratchpad, or data/).
 
-    python -u -m scripts.compare_ranking --limit 3             # the 3 best stored scores
+    python -u -m scripts.compare_ranking --limit 3                  # the 3 best stored scores
     python -u -m scripts.compare_ranking --limit 3 --source career_site
+    python -u -m scripts.compare_ranking --all --answers data/criteria_answers.json
+    python -u -m scripts.compare_ranking --all --answers data/criteria_answers.json --no-llm
 """
 import argparse
+import json
 import sqlite3
 from datetime import date, datetime
+from pathlib import Path
 
 from job_watch import config
 from job_watch.list_agent.detail import date_stated
 from job_watch.offers import storage
 from job_watch.offers.ask_criteria import OfferInput, answer_offer
-from job_watch.offers.criteria import judge
+from job_watch.offers.criteria import CheckedAnswer, Verdict, judge
 from job_watch.offers.nodes import without_board_salary
+
+TOP = 10
 
 
 def posted_date(offer: dict) -> date | None:
@@ -30,43 +39,117 @@ def posted_date(offer: dict) -> date | None:
     return day
 
 
+def offer_input(offer: dict) -> tuple[OfferInput, bool]:
+    """What the LLM reads, and whether it is the full ad (career-site page; an RSS description may not be)."""
+    ad = offer["description"] or ""
+    if offer["source"] != "career_site":
+        ad = without_board_salary(ad)       # RSS offers stored before the feed line was removed
+    full_ad = offer["source"] == "career_site" and bool(ad)
+    return OfferInput(company=offer["company"], title=offer["title"],
+                      location=offer.get("city") or offer.get("location") or "", ad=ad), full_ad
+
+
+def load_saved(path: Path | None) -> dict:
+    return json.loads(path.read_text(encoding="utf-8")) if path and path.exists() else {}
+
+
+def label(offer: dict) -> str:
+    return f"{offer['title'][:60]} @ {offer['company'][:25]}"
+
+
+def show_top(title: str, ranked: list[tuple[dict, int, list[str]]]) -> None:
+    print(f"\n=== {title} ===")
+    for rank, (offer, score, reasons) in enumerate(ranked[:TOP], 1):
+        print(f"{rank:2d}. {score:4d}  {label(offer)}  [{offer['source']}]")
+        for reason in reasons:
+            print(f"            {reason[:150]}")
+
+
 def main():
     parser = argparse.ArgumentParser()
-    parser.add_argument("--limit", type=int, default=3, help="number of offers (one LLM call each)")
+    parser.add_argument("--limit", type=int, default=3, help="number of offers, best stored scores first")
+    parser.add_argument("--all", action="store_true", help="every stored offer, kept or rejected")
     parser.add_argument("--source", help="only this source (career_site, swissdevjobs)")
+    parser.add_argument("--answers", type=Path, help="JSON file of the checked answers (saved, then reused)")
+    parser.add_argument("--no-llm", action="store_true", help="only the saved answers, no LLM call")
     args = parser.parse_args()
+    if args.no_llm and not args.answers:
+        parser.error("--no-llm needs --answers")
 
     conn = sqlite3.connect(f"file:{config.DB_PATH}?mode=ro", uri=True)
     conn.row_factory = sqlite3.Row
-    query = "SELECT * FROM offers WHERE status = 'new'" + (" AND source = ?" if args.source else "")
-    rows = conn.execute(query + " ORDER BY score DESC LIMIT ?",
-                        (*([args.source] if args.source else []), args.limit)).fetchall()
+    conditions, values = [], []
+    if args.source:
+        conditions.append("source = ?")
+        values.append(args.source)
+    if not args.all:
+        conditions.append("status = 'new'")
+    where = f" WHERE {' AND '.join(conditions)}" if conditions else ""
+    limit = "" if args.all else f" LIMIT {int(args.limit)}"
+    rows = conn.execute(f"SELECT * FROM offers{where} ORDER BY score DESC, company, key{limit}", values).fetchall()
     conn.close()
 
     settings, today = config.SETTINGS, date.today()
+    asks = [c.ask for c in settings.criteria]
+    saved = load_saved(args.answers)
+    results: list[tuple[dict, Verdict, list[CheckedAnswer]]] = []
+    failed, reused = [], 0
     for number, row in enumerate(rows, 1):
         offer = storage.row_to_offer(row)
-        # Career-site description: the text of the offer page. RSS description: not known to be the whole ad
-        full_ad = offer["source"] == "career_site" and bool(offer["description"])
-        ad = offer["description"] or ""
-        if offer["source"] != "career_site":
-            ad = without_board_salary(ad)       # RSS offers stored before the feed line was removed
-        query = OfferInput(company=offer["company"], title=offer["title"],
-                           location=offer.get("city") or offer.get("location") or "", ad=ad)
-        checked, answered = answer_offer(settings, query, full_ad=full_ad)
-        verdict = judge(settings, checked, offer["company"], posted_date(offer), today)
-
-        print(f"\n[{number}/{len(rows)}] {offer['title'][:70]} @ {offer['company']}  [{offer['source']}]"
-              f"  ad: {len(offer['description'] or '')} chars{'' if full_ad else ', not a full ad'}")
-        print(f"  stored: {offer['status']} {offer['score']}  {', '.join(offer['reasons'])}")
+        name = f"{offer['company']}|{offer['key']}"
+        entry = saved.get(name)
+        if entry and [a["ask"] for a in entry["checked"]] == asks:     # same questions: same answers
+            checked, answered, reused = [CheckedAnswer(**a) for a in entry["checked"]], True, reused + 1
+        elif args.no_llm:
+            continue
+        else:
+            query, full_ad = offer_input(offer)
+            checked, answered = answer_offer(settings, query, full_ad=full_ad)
+            if answered and args.answers:       # a failed call is not saved: the next run asks again
+                saved[name] = {"checked": [a.model_dump() for a in checked]}
+                args.answers.write_text(json.dumps(saved, ensure_ascii=False, indent=1), encoding="utf-8")
         if not answered:
-            print("  criteria: every model failed, all answers unknown")
-        print(f"  new:    {verdict.status} {verdict.score}")
-        for reason in verdict.reasons:
-            print(f"          {reason}")
-        refused = [a for a in checked if a.answer == "unknown" and a.quote and not a.quote_found]
-        for answer in refused:
-            print(f"  quote not found: {answer.ask[:60]!r} <- {answer.quote[:80]!r}")
+            failed.append(offer)
+        verdict = judge(settings, checked, offer["company"], posted_date(offer), today)
+        results.append((offer, verdict, checked))
+        print(f"[{number}/{len(rows)}] {label(offer)}: stored {offer['status']} {offer['score']} -> "
+              f"{verdict.status} {verdict.score}{'' if answered else '  (every model failed)'}", flush=True)
+
+    # ---------- summary ----------
+    old = sorted((r for r in results if r[0]["status"] == "new"), key=lambda r: -(r[0]["score"] or 0))
+    new = sorted((r for r in results if r[1].status == "new"), key=lambda r: -r[1].score)
+    show_top("stored ranking", [(o, o["score"] or 0, o["reasons"]) for o, _, _ in old])
+    show_top("new ranking", [(o, v.score, v.reasons) for o, v, _ in new])
+    old_top = {(o["company"], o["key"]) for o, _, _ in old[:TOP]}
+    new_top = {(o["company"], o["key"]) for o, _, _ in new[:TOP]}
+    print(f"\nIn both top {TOP}: {len(old_top & new_top)}")
+
+    rank_old = {(o["company"], o["key"]): i for i, (o, _, _) in enumerate(old, 1)}
+    rank_new = {(o["company"], o["key"]): i for i, (o, _, _) in enumerate(new, 1)}
+    moves = sorted(((rank_old[k] - rank_new[k], o) for o, _, _ in new
+                    if (k := (o["company"], o["key"])) in rank_old), key=lambda m: -abs(m[0]))
+    print(f"\n=== biggest rank changes (kept in both; kept: {len(rank_old)} stored, {len(rank_new)} new) ===")
+    for move, offer in moves[:TOP]:
+        key = (offer["company"], offer["key"])
+        print(f"  {rank_old[key]:3d} -> {rank_new[key]:3d}  ({move:+d})  {label(offer)}")
+
+    print("\n=== kept before, rejected now ===")
+    for offer, verdict, _ in results:
+        if offer["status"] == "new" and verdict.status == "rejected":
+            print(f"  {label(offer)}  (stored {offer['score']})\n      {'; '.join(verdict.reasons)[:250]}")
+    print("\n=== rejected before, kept now ===")
+    for offer, verdict, _ in results:
+        if offer["status"] == "rejected" and verdict.status == "new":
+            print(f"  {label(offer)}  -> {verdict.score}\n      was: {'; '.join(offer['reasons'])[:200]}")
+
+    refused = [(o, a) for o, _, checked in results for a in checked
+               if a.answer == "unknown" and a.quote and not a.quote_found]
+    print(f"\n=== quotes not found in the ad: {len(refused)} ===")
+    for offer, answer in refused[:15]:
+        print(f"  {label(offer)}: {answer.ask[:50]!r} <- {answer.quote[:80]!r}")
+    print(f"\nOffers: {len(results)}, answers reused: {reused}, every model failed: {len(failed)}")
+    for offer in failed:
+        print(f"  {label(offer)}")
 
 
 if __name__ == "__main__":
