@@ -7,6 +7,7 @@ so first_seen tells which offers are new since the previous run.
 The offer key (extraction.offer_key) is unique within one company only: a reference number
 or a title and location can repeat between companies, so the primary key is (company, key).
 """
+import json
 import sqlite3
 from collections.abc import Callable
 from datetime import datetime, timezone
@@ -30,12 +31,16 @@ CREATE TABLE IF NOT EXISTS listed_offers (
     category            TEXT,       -- Technology/IT only
     secondary_category  TEXT,
     category_reason     TEXT,
-    reject_reason       TEXT,       -- dealbreakers that set the offer aside, when kept = 0
+    reject_reason       TEXT,       -- domain or reject criteria that set the offer aside, when kept = 0
+    criteria_questions  TEXT,       -- criteria answered on the listing data (offers.scoring), raw
+    criteria_answers    TEXT,       -- JSON, null when every model failed
+    criteria_model      TEXT,
     PRIMARY KEY (company, key)
 )
 """
 ADDED_COLUMNS = {"domain": "TEXT", "category": "TEXT", "secondary_category": "TEXT", "category_reason": "TEXT",
-                 "reject_reason": "TEXT"}
+                 "reject_reason": "TEXT", "criteria_questions": "TEXT", "criteria_answers": "TEXT",
+                 "criteria_model": "TEXT"}
 
 
 def connect(path: Path | None = None) -> sqlite3.Connection:
@@ -59,6 +64,15 @@ def known_keys(conn: sqlite3.Connection, company: str) -> set[str]:
     return {row[0] for row in conn.execute("SELECT key FROM listed_offers WHERE company = ?", (company,))}
 
 
+def _asked_values(offer: CheckedOffer) -> tuple:
+    if offer.asked is None:
+        return None, None, None
+    answers = offer.asked.criteria_answers
+    return (offer.asked.criteria_questions,
+            None if answers is None else json.dumps([a.model_dump() for a in answers], ensure_ascii=False),
+            offer.asked.criteria_model)
+
+
 def save_listed_offers(conn: sqlite3.Connection, company: str, offers: list[CheckedOffer], seen: str,
                        keep: Callable[[CheckedOffer], bool] | None = None, commit: bool = True) -> list[str]:
     """Insert the new offers, update last_seen of the known ones. Return the keys of the new offers.
@@ -76,12 +90,13 @@ def save_listed_offers(conn: sqlite3.Connection, company: str, offers: list[Chec
     conn.executemany(
         """
         INSERT INTO listed_offers (company, key, title, location, link, verified, first_seen, last_seen, kept,
-                                   domain, category, secondary_category, category_reason, reject_reason)
-        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                                   domain, category, secondary_category, category_reason, reject_reason,
+                                   criteria_questions, criteria_answers, criteria_model)
+        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
         """,
         [(company, o.key, o.title, o.location, o.link, int(o.verified), seen, seen,
           None if keep is None else int(keep(o)), o.domain, o.category, o.secondary_category, o.category_reason,
-          "; ".join(o.rejected_by)) for o in new],
+          "; ".join(o.rejected_by), *_asked_values(o)) for o in new],
     )
     conn.executemany(
         "UPDATE listed_offers SET last_seen = ? WHERE company = ? AND key = ?",

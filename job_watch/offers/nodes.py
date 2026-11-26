@@ -6,7 +6,8 @@ import feedparser
 from bs4 import BeautifulSoup
 
 from job_watch import config
-from job_watch.offers.rules import facts_of, judge
+from job_watch.offers.criteria import Verdict
+from job_watch.offers.scoring import ask, domain_kept, offer_query, offer_verdict
 from job_watch.offers.state import JobState, Offer
 from job_watch.offers.triage import TriageInput, triage_offers
 
@@ -99,16 +100,30 @@ def triage_rss(state: JobState) -> dict:
     return {"offers": offers}
 
 
-def apply_rules(state: JobState) -> dict:
-    """Node: dealbreakers and bonuses of offers/rules.py on the facts of each offer (no LLM)."""
-    offers = []
+NOT_SCORED = Verdict(status="new", score=0, reasons=["not scored: no answers to the current questions"])
+
+
+def score_offers(state: JobState) -> dict:
+    """Node: the criteria of the user on each offer (offers/scoring.py).
+
+    New RSS offers whose domain is kept are asked now (one LLM call each, on the feed description);
+    career-site offers come with their answers (listing or detail page). Known offers are never
+    asked again: they are not stored again either.
+    """
+    known = storage.known_offers()
+    offers, asked = [], 0
     for original in state["offers"]:
         offer = dict(original)  # work on a copy, never modify the input state
-        verdict = judge(facts_of(offer))
+        new = (offer["company"], offer["key"]) not in known
+        if new and offer["source"] != "career_site" and "criteria_questions" not in offer \
+                and domain_kept(offer.get("domain")):
+            offer.update(ask(offer_query(offer), full_ad=False).model_dump())
+            asked += 1
+        verdict = offer_verdict(offer) or NOT_SCORED
         offer.update(status=verdict.status, score=verdict.score, reasons=verdict.reasons)
         offers.append(offer)
     kept = sum(1 for o in offers if o["status"] == "new")
-    print(f"apply_rules: {kept} kept, {len(offers) - kept} rejected")
+    print(f"score_offers: {asked} RSS offers asked, {kept} kept, {len(offers) - kept} rejected")
     return {"offers": offers}
 
 

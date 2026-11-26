@@ -14,6 +14,7 @@ checked in code (a "yes" needs its quote in the text), then any reject criterion
 rejects the offer; otherwise the score is the sum of the points of the "yes" criteria, the best one
 per group. Unknown never rejects and never gives points.
 """
+import hashlib
 import re
 import unicodedata
 from datetime import date
@@ -109,6 +110,11 @@ class Settings(BaseModel):
             raise ValueError(f"unknown domains {unknown} (known: {', '.join(DOMAINS)})")
         return list(dict.fromkeys(domains))
 
+    @property
+    def questions_id(self) -> str:
+        """Short fingerprint of the questions: stored answers are reused only for the same questions."""
+        return hashlib.sha256("\n".join(c.ask for c in self.criteria).encode()).hexdigest()[:12]
+
     @field_validator("criteria")
     @classmethod
     def distinct_questions(cls, criteria: list[Criterion]) -> list[Criterion]:
@@ -186,7 +192,7 @@ class CheckedAnswer(BaseModel):
 class Verdict(BaseModel):
     status: Literal["new", "rejected"]  # "new": kept
     score: int
-    reasons: list[str]      # criteria that rejected the offer, or that counted, with their points and evidence
+    reasons: list[str]      # criteria that counted, with points and evidence; or "rejected: <criterion> | <evidence>"
 
 
 def criterion_id(index: int) -> str:
@@ -277,7 +283,7 @@ def judge(settings: Settings, checked: list[CheckedAnswer], company: str, posted
     rejected = [m for m in matches if m.reject]
     if rejected:
         return Verdict(status="rejected", score=0,
-                       reasons=[f"rejected: {m.label} ({m.evidence!r})" for m in rejected])
+                       reasons=[f"rejected: {m.label} | {m.evidence!r}" for m in rejected])
     counted = [m for m in matches if m.group is None]
     for group in dict.fromkeys(m.group for m in matches if m.group is not None):
         members = [m for m in matches if m.group == group]

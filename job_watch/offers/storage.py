@@ -10,15 +10,19 @@ from collections.abc import Callable
 
 from job_watch import config
 
-# Facts of an offer stored with it, so that rules and scores can be computed again without any LLM call
-# (scripts/rescore.py). JSON columns hold lists.
+# Triage and raw criteria answers stored with an offer, so that the score can be computed again
+# without any LLM call (scripts/rescore.py). JSON columns hold lists (criteria_answers: null when
+# every model failed).
 FACT_COLUMNS = {
     "domain": "TEXT", "category": "TEXT", "secondary_category": "TEXT",         # triage
-    "detail_summary": "TEXT", "requirements": "TEXT", "city": "TEXT", "country": "TEXT",   # detail fact sheet
-    "seniority": "TEXT", "experience_years": "INTEGER", "experience_requirement": "TEXT", "languages": "TEXT",
-    "contract": "TEXT", "workload": "TEXT", "salary": "TEXT", "education": "TEXT", "ad_language": "TEXT",
+    "criteria_questions": "TEXT", "criteria_answers": "TEXT", "criteria_model": "TEXT", "full_ad": "INTEGER",
 }
-JSON_COLUMNS = {"requirements", "languages", "reasons"}
+JSON_COLUMNS = {"reasons", "criteria_answers"}
+# Columns of the detail fact sheet, replaced by the criteria: dropped from an existing table. The
+# career-site publication date came from that fact sheet too (not checked in the page): emptied.
+DROPPED_COLUMNS = ("detail_summary", "requirements", "city", "country", "seniority", "experience_years",
+                   "experience_requirement", "languages", "contract", "workload", "salary", "education",
+                   "ad_language")
 COLUMNS = ("company", "key", "link", "title", "location", "description", "source", "published", "fetched",
            "score", "reasons", "status", *FACT_COLUMNS)
 
@@ -70,9 +74,14 @@ def connect() -> sqlite3.Connection:
         _migrate_from_link_key(conn)
     conn.execute(SCHEMA)
     columns = {row[1] for row in conn.execute("PRAGMA table_info(offers)")}
-    for name, kind in FACT_COLUMNS.items():         # table created before the fact sheet: add the columns
+    for name, kind in FACT_COLUMNS.items():         # table created before these columns: add them
         if name not in columns:
             conn.execute(f"ALTER TABLE offers ADD COLUMN {name} {kind}")
+    dropped = [name for name in DROPPED_COLUMNS if name in columns]
+    for name in dropped:
+        conn.execute(f"ALTER TABLE offers DROP COLUMN {name}")
+    if dropped:
+        conn.execute("UPDATE offers SET published = '' WHERE source = 'career_site'")
     conn.commit()
     return conn
 
@@ -80,9 +89,13 @@ def connect() -> sqlite3.Connection:
 def _row(offer: dict) -> tuple:
     def value(name):
         found = offer.get(name)
+        if name == "criteria_answers":
+            return None if found is None else json.dumps(found, ensure_ascii=False)
         if name in JSON_COLUMNS:
             return json.dumps(found or [], ensure_ascii=False)
-        return found if found is not None or name in ("score", "experience_years") else ""
+        if name == "full_ad":
+            return None if found is None else int(found)
+        return found if found is not None or name == "score" else ""
     return tuple(value(name) if name != "status" else offer.get("status", "new") for name in COLUMNS)
 
 
@@ -91,7 +104,8 @@ def row_to_offer(row: sqlite3.Row) -> dict:
     offer = dict(row)
     for name in JSON_COLUMNS:
         if name in offer:
-            offer[name] = json.loads(offer[name] or "[]")
+            empty = "null" if name == "criteria_answers" else "[]"
+            offer[name] = json.loads(offer[name] or empty)
     return offer
 
 

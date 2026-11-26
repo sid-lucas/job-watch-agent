@@ -12,35 +12,21 @@ criteria or of the checks needs no LLM call (--no-llm).
     python -u -m scripts.compare_ranking --all --no-llm
 """
 import argparse
-import hashlib
 import json
 import sqlite3
 from collections import Counter
-from datetime import date, datetime
+from datetime import date
 from pathlib import Path
 
 from job_watch import config
-from job_watch.list_agent.detail import date_stated
 from job_watch.llm import calls_since, model_calls
 from job_watch.offers import storage
 from job_watch.offers.ask_criteria import OfferInput, answer_offer, check_offer
 from job_watch.offers.criteria import Answer, CheckedAnswer, Verdict, judge
 from job_watch.offers.nodes import without_board_salary
+from job_watch.offers.scoring import posted_date
 
 TOP = 10
-
-
-def posted_date(offer: dict) -> date | None:
-    """Publication date: from the feed for RSS offers; for career sites, the date of the detail fact
-    sheet only when the stored page text writes it (offers stored before that check may hold an
-    invented date)."""
-    try:
-        day = datetime.fromisoformat(offer["published"]).date() if offer["published"] else None
-    except ValueError:
-        return None
-    if day and offer["source"] == "career_site" and not date_stated(day, offer["description"] or ""):
-        return None
-    return day
 
 
 def offer_input(offer: dict) -> tuple[OfferInput, bool]:
@@ -50,12 +36,7 @@ def offer_input(offer: dict) -> tuple[OfferInput, bool]:
         ad = without_board_salary(ad)       # RSS offers stored before the feed line was removed
     full_ad = offer["source"] == "career_site" and bool(ad)
     return OfferInput(company=offer["company"], title=offer["title"],
-                      location=offer.get("city") or offer.get("location") or "", ad=ad), full_ad
-
-
-def questions_id(asks: list[str]) -> str:
-    """Short fingerprint of the questions: saved answers are reused only for the same questions."""
-    return hashlib.sha256("\n".join(asks).encode()).hexdigest()[:12]
+                      location=offer.get("location") or "", ad=ad), full_ad
 
 
 def load_saved(path: Path, questions: str) -> dict[str, tuple[list[Answer], str]]:
@@ -120,7 +101,7 @@ def main():
     conn.close()
 
     settings, today = config.SETTINGS, date.today()
-    questions = questions_id([c.ask for c in settings.criteria])
+    questions = settings.questions_id
     saved = load_saved(args.answers, questions)
     results: list[tuple[dict, Verdict, list[CheckedAnswer]]] = []
     failed, reused, models, start = [], 0, Counter(), model_calls()

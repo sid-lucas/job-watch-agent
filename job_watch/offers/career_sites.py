@@ -51,22 +51,18 @@ def why_not_collected(registry: dict, requested: list[str]) -> list[str]:
 
 
 def to_offers(collection: CompanyCollection, details: DetailCollection, fetched: str) -> list[Offer]:
-    """New offers kept by the filter, as V1 offers, with their detail when the page was read."""
+    """New offers kept by the filter, as V1 offers: the criteria answered on the page when it was
+    read, else those answered on the listing data. The page text is kept as the description."""
     by_key = {d.key: d for d in details.details}
     offers = []
     for listed in collection.new_kept:
         offer = Offer(key=listed.key, title=listed.title, company=collection.company, location=listed.location,
-                      description="", source=SOURCE, link=listed.link, published="", fetched=fetched,
-                      list_url=collection.url, domain=listed.domain, category=listed.category,
+                      description=details.texts.get(listed.key, ""), source=SOURCE, link=listed.link, published="",
+                      fetched=fetched, list_url=collection.url, domain=listed.domain, category=listed.category,
                       secondary_category=listed.secondary_category)
-        if detail := by_key.get(listed.key):
-            offer.update(description=details.texts.get(listed.key, ""), published=detail.posted,
-                         detail_summary=detail.summary, requirements=detail.requirements,
-                         category=detail.category or listed.category, city=detail.city, country=detail.country,
-                         seniority=detail.seniority, experience_years=detail.experience_years,
-                         experience_requirement=detail.experience_requirement, languages=detail.languages,
-                         contract=detail.contract, workload=detail.workload, salary=detail.salary,
-                         education=detail.education, ad_language=detail.ad_language)
+        asked = by_key[listed.key].asked if listed.key in by_key else listed.asked
+        if asked is not None:
+            offer.update(asked.model_dump())
         offers.append(offer)
     return offers
 

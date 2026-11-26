@@ -39,18 +39,18 @@ def parse_args(argv: list[str] | None = None) -> argparse.Namespace:
 
 def show_set_aside_at_listing(result: dict) -> None:
     """New career-site offers set aside before the detail, by company, to be read by eye:
-    first those whose domain is not kept (title | domain), then the other dealbreakers (title | reason)."""
+    first those whose domain is not kept (title | domain), then the reject criteria (title | reason)."""
     for collection in result.get("collections", []):
         new = set(collection.new_keys)
         aside = [o for o in collection.offers if o.key in new and o.rejected_by]
-        by_domain = [o for o in aside if o.rejected_by[0].startswith("rejected: domain not kept")]
+        by_domain = [o for o in aside if o.rejected_by[0].startswith("rejected: domain not kept ")]
         by_rule = [o for o in aside if o not in by_domain]
         if by_domain:
             print(f"\nSet aside by the triage at {collection.company} ({len(by_domain)}): title | domain")
             for offer in by_domain:
                 print(f"  {offer.title[:90]} | {offer.domain}")
         if by_rule:
-            print(f"\nSet aside by a dealbreaker at {collection.company} ({len(by_rule)}): title | reason")
+            print(f"\nSet aside by a reject criterion at {collection.company} ({len(by_rule)}): title | reason")
             for offer in by_rule:
                 print(f"  {offer.title[:90]} | {'; '.join(r.removeprefix('rejected: ') for r in offer.rejected_by)}")
 
@@ -73,11 +73,10 @@ def show(result: dict) -> None:
 
     for o in good[:config.MAX_DISPLAY]:
         print(f"\n{o['score']:4d}  {o['title']} @ {o['company']}  [{o['source']}]")
-        print(f"      {', '.join(o['reasons'])}")
-        facts = [o.get("city") or o.get("location"), o.get("seniority"), o.get("contract"), o.get("workload")]
-        facts = [f for f in facts if f and f != "unknown"]
-        if facts:
-            print(f"      {', '.join(facts)}")
+        for reason in o["reasons"]:
+            print(f"      {reason[:160]}")
+        if o.get("location") and o["location"] != "unknown":
+            print(f"      Location: {o['location']}")
         if o["link"]:
             print(f"            Offer:  {o['link']}")
         else:
@@ -88,7 +87,7 @@ def show(result: dict) -> None:
         print(f"\n... and {len(good) - config.MAX_DISPLAY} more above score {config.MIN_SCORE}")
 
     if rejected:
-        reasons = Counter(r for o in rejected for r in o["reasons"])
+        reasons = Counter(r.split(" | ")[0].removeprefix("rejected: ") for o in rejected for r in o["reasons"])
         print("\nRejection reasons: " + ", ".join(f"{r} ({n})" for r, n in reasons.most_common()))
 
 

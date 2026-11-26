@@ -147,7 +147,7 @@ def test_a_yes_whose_quote_is_not_in_the_text_becomes_unknown():
 def test_a_reject_criterion_answered_yes_rejects_whatever_the_points():
     result, _ = verdict(answers(c1=("yes", "Lieu : Genève"), c2=("yes", "SOC")))
     assert result.status == "rejected" and result.score == 0
-    assert result.reasons == ["rejected: Is the job abroad? ('Lieu : Genève')"]
+    assert result.reasons == ["rejected: Is the job abroad? | 'Lieu : Genève'"]
 
 
 def test_a_reject_without_valid_quote_never_rejects():

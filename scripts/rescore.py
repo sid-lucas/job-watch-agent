@@ -1,4 +1,4 @@
-"""Compute rejections and scores again with the current rules (DEALBREAKERS, BONUSES), no LLM call.
+"""Compute rejections and scores again from the stored criteria answers (user_config.py), no LLM call.
 
     python -m scripts.rescore [--db PATH] [--dry-run]       # default: data/offers.db
 """
@@ -20,10 +20,12 @@ def main():
         config.DB_PATH = args.db
 
     report = rescore(write=not args.dry_run)
-    print(f"offers: {report.offers}, {len(report.offer_changes)} changed")
+    print(f"offers: {report.offers}, {len(report.offer_changes)} changed, "
+          f"{report.offers_not_rescored} not rescored (no answers to the current questions)")
     for change in report.offer_changes:
         print(f"  {change.company}: {change.title[:70]} | {change.before} -> {change.after}")
-    print(f"listed offers: {report.listed}, {len(report.listed_changes)} changed")
+    print(f"listed offers: {report.listed}, {len(report.listed_changes)} changed, "
+          f"{report.listed_not_rescored} not rescored")
     for change in report.listed_changes:
         print(f"  {change.company}: {change.title[:70]} | {change.before} -> {change.after}")
     if report.kept_without_detail:

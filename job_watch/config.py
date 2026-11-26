@@ -15,23 +15,6 @@ from job_watch.offers.criteria import load_settings
 # Criteria of the user, validated at startup (a problem stops the program with a clear message)
 SETTINGS = load_settings(PROFILE, CRITERIA, CODE_CRITERIA, KEPT_DOMAINS)
 
-# Rules applied by code to the facts of an offer (offers/rules.py), until the criteria above replace them.
-SECURITY_CATEGORIES = ["Cybersecurity SOC/incident response", "Cybersecurity GRC/risk/compliance",
-                       "Cybersecurity engineering/architecture/pentest", "AI security"]
-DEFAULT_DEALBREAKERS = [
-    {"name": "abroad", "fact": "location", "is": "abroad"},
-    {"name": "senior level", "fact": "seniority", "in": ["senior", "lead"]},
-    {"name": "ad in German", "fact": "ad_language", "is": "de"},
-]
-DEFAULT_BONUSES = [
-    {"name": "security job", "fact": "category", "in": SECURITY_CATEGORIES, "points": 30},
-    {"name": "entry level", "fact": "seniority", "in": ["graduate", "junior"], "points": 30},
-    {"name": "top company", "fact": "company", "in_names": TOP_COMPANIES, "points": 20},
-    {"name": "good company", "fact": "company", "in_names": GOOD_COMPANIES, "points": 10},
-]
-DEALBREAKERS = DEFAULT_DEALBREAKERS
-BONUSES = DEFAULT_BONUSES
-
 # Paths
 BASE_DIR = Path(__file__).parent.parent
 DB_PATH = BASE_DIR / "data" / "offers.db"

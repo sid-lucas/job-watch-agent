@@ -13,11 +13,12 @@ from collections.abc import Callable
 from pydantic import BaseModel
 
 from job_watch.list_agent import run as agent_run
-from job_watch.list_agent.detail import CheckedDetail, DetailPage, Skipped, extract_detail, open_details, plan_details
+from job_watch.list_agent.detail import DetailPage, Skipped, open_details, plan_details
 from job_watch.list_agent.extraction import CheckedOffer, extract_observations
 from job_watch.llm import calls_since, model_calls
 from job_watch.offers.listed import known_keys, now_iso, save_listed_offers
-from job_watch.offers.rules import kept as keep, listing_rejections
+from job_watch.offers.ask_criteria import OfferInput
+from job_watch.offers.scoring import Asked, ask, screen_listed
 from job_watch.offers.triage import TriageInput, triage_offers
 
 
@@ -57,7 +58,11 @@ def collect_company(company: str, url: str, conn: sqlite3.Connection,
     for offer, verdict in zip(to_triage, verdicts):
         offer.domain, offer.category, offer.secondary_category = verdict.domain, verdict.category, verdict.secondary
         offer.category_reason = verdict.reason
-        offer.rejected_by = listing_rejections(offer, company)      # dealbreakers known from the list
+        screen_listed(offer, company)           # domain, then the criteria on the listing data
+    if log and to_triage:
+        asked = sum(o.asked is not None for o in to_triage)
+        log(f"criteria on the listing: {asked} offers asked, "
+            f"{sum(bool(o.rejected_by) for o in to_triage)} set aside")
     return CompanyCollection(
         company=company, url=url, stop=run.stop, pages_reached=agent_run.pages_reached(run.trail),
         offers=extraction.offers, new_keys=new_keys, seen=now_iso(),
@@ -72,12 +77,22 @@ def save_collection(conn: sqlite3.Connection, collection: CompanyCollection, com
                               commit=commit)
 
 
+def keep(offer: CheckedOffer) -> bool:
+    """A listed offer is kept unless its domain or a reject criterion set it aside."""
+    return not offer.rejected_by
+
+
+class DetailAnswers(BaseModel):
+    key: str
+    asked: Asked                        # criteria answered on the page text
+
+
 class DetailCollection(BaseModel):
     company: str
-    details: list[CheckedDetail]        # accepted pages, extracted and checked
+    details: list[DetailAnswers]        # accepted pages, criteria answered
     texts: dict[str, str]               # offer key -> raw page text (cut), for V2
     refused_pages: list[DetailPage]     # not allowed, redirected, title not found
-    failed_extractions: list[str]       # keys of accepted pages for which every model failed
+    failed_extractions: list[str]       # keys of accepted pages for which every model failed (listing answers kept)
     skipped: list[Skipped]              # offers not opened, with the reason
     model_calls: dict[str, int]
 
@@ -99,14 +114,16 @@ def collect_details(collection: CompanyCollection, log: Callable[[str], None] | 
     for page in pages:
         if page.failure:
             continue
-        detail = extract_detail(collection.company, offers[page.key], page)
-        if detail is None:
+        offer = offers[page.key]
+        query = OfferInput(company=collection.company, title=offer.title, location=offer.location, ad=page.text)
+        asked = ask(query, full_ad=not page.truncated)      # a page cut at DETAIL_MAX_CHARS is not the whole ad
+        texts[page.key] = page.text
+        if asked.criteria_answers is None:
             failed.append(page.key)
             if log:
-                log(f"detail extraction failed (every model): {page.key}")
+                log(f"criteria on the page failed (every model): {page.key}")
             continue
-        details.append(detail)
-        texts[page.key] = page.text
+        details.append(DetailAnswers(key=page.key, asked=asked))
     return DetailCollection(company=collection.company, details=details, texts=texts,
                             refused_pages=[p for p in pages if p.failure], failed_extractions=failed,
                             skipped=plan.skipped, model_calls=calls_since(before))

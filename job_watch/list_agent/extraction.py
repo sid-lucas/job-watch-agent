@@ -13,6 +13,7 @@ from pydantic import BaseModel, Field
 
 from job_watch.list_agent.tools import _untrusted
 from job_watch.llm import call_with_retry, structured_llm
+from job_watch.offers.scoring import Asked
 from job_watch.web.click_rules import normalise, site_domain
 from job_watch.web.session import Element, Observation
 
@@ -112,7 +113,8 @@ class CheckedOffer(BaseModel):
     category: str | None = None             # Technology/IT only
     secondary_category: str | None = None
     category_reason: str = ""
-    rejected_by: list[str] = []             # dealbreakers on the listing facts (offers.rules), empty: kept
+    asked: Asked | None = None              # criteria answered on the listing data (offers.scoring)
+    rejected_by: list[str] = []             # domain not kept, or reject criteria on the listing; empty: kept
 
 
 def _fold(text: str) -> tuple[str, list[int]]:

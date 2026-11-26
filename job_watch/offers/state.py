@@ -18,25 +18,18 @@ class Offer(TypedDict):
     category: NotRequired[str | None]
     secondary_category: NotRequired[str | None]
 
-    # Career-site offers only: list URL, and the detail fact sheet (each fact checked in the page)
+    # Career-site offers only: list URL
     list_url: NotRequired[str]
-    detail_summary: NotRequired[str]
-    requirements: NotRequired[list[str]]
-    city: NotRequired[str]
-    country: NotRequired[str]
-    seniority: NotRequired[str]
-    experience_years: NotRequired[int | None]
-    experience_requirement: NotRequired[str]
-    languages: NotRequired[list[dict]]
-    contract: NotRequired[str]
-    workload: NotRequired[str]
-    salary: NotRequired[str]
-    education: NotRequired[str]
-    ad_language: NotRequired[str]
 
-    # Filled by apply_rules (offers/rules.py)
+    # Criteria answered by the LLM (offers/scoring.py): raw answers, checked again in code each time
+    criteria_questions: NotRequired[str]            # fingerprint of the questions answered
+    criteria_answers: NotRequired[list[dict] | None]    # None: every model failed
+    criteria_model: NotRequired[str]
+    full_ad: NotRequired[bool]                      # the answers read the whole ad (offer page)
+
+    # Filled by score_offers (offers/nodes.py)
     score: NotRequired[int]
-    reasons: NotRequired[list[str]]   # bonuses with their points, or the dealbreakers that rejected the offer
+    reasons: NotRequired[list[str]]   # criteria that counted with points and quotes, or those that rejected
     status: NotRequired[str]          # "new" or "rejected"
 
 

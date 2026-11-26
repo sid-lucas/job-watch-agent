@@ -1,8 +1,11 @@
-"""Compute rejections and scores again from the stored facts, after a change of the rules. No LLM call.
+"""Compute rejections and scores again from the stored criteria answers, after a change of the
+settings (points, groups, code criteria, kept domains) or of the checks. No LLM call.
 
-offers: status, score and reasons from all the facts of each offer. listed_offers: kept and
-reject_reason from the listing facts. A listed offer that becomes kept has no detail and is not in
-offers (it was set aside before the detail phase): it is reported, not fetched.
+offers: status, score and reasons from the raw answers stored with each offer, checked again.
+listed_offers: kept and reject_reason from the answers on the listing data. A listed offer that
+becomes kept has no detail and is not in offers (it was set aside before the detail phase): it is
+reported, not fetched. Answers given to other questions are not used: those offers keep their
+stored values and are counted as not rescored (they must be asked again).
 """
 import json
 import sqlite3
@@ -10,9 +13,9 @@ import sqlite3
 from pydantic import BaseModel
 
 from job_watch import config
-from job_watch.list_agent.extraction import CheckedOffer
 from job_watch.offers import listed, storage
-from job_watch.offers.rules import facts_of, judge, listing_rejections
+from job_watch.offers.ask_criteria import OfferInput
+from job_watch.offers.scoring import Asked, offer_verdict, verdict
 
 
 class Change(BaseModel):
@@ -25,8 +28,10 @@ class Change(BaseModel):
 class RescoreReport(BaseModel):
     offers: int
     offer_changes: list[Change]         # status or score changed
+    offers_not_rescored: int            # no answers to the current questions
     listed: int
     listed_changes: list[Change]        # kept or set aside
+    listed_not_rescored: int
     kept_without_detail: list[Change]   # listed offers now kept that are not in offers
 
 
@@ -34,20 +39,31 @@ def _describe(status: str, score: int | None) -> str:
     return "rejected" if status == "rejected" else f"kept, score {score}"
 
 
+def _listed_asked(row: sqlite3.Row) -> Asked | None:
+    if not row["criteria_questions"]:
+        return None
+    answers = None if row["criteria_answers"] is None else json.loads(row["criteria_answers"])
+    return Asked(criteria_questions=row["criteria_questions"], criteria_answers=answers,
+                 criteria_model=row["criteria_model"] or "", full_ad=False)
+
+
 def rescore(write: bool = True) -> RescoreReport:
-    """Apply the current rules to every stored offer (config.DB_PATH). write=False: report only."""
+    """Apply the current settings to every stored offer (config.DB_PATH). write=False: report only."""
     listed.connect(config.DB_PATH).close()      # listed_offers exists with all its columns, before any write
     conn = storage.connect()
     conn.row_factory = sqlite3.Row
     try:
-        offer_changes, updates = [], []
+        offer_changes, updates, offers_skipped = [], [], 0
         rows = conn.execute("SELECT * FROM offers").fetchall()
         for row in rows:
             offer = storage.row_to_offer(row)
-            verdict = judge(facts_of(offer))
-            before, after = _describe(offer["status"], offer["score"]), _describe(verdict.status, verdict.score)
-            if (offer["status"], offer["score"], offer["reasons"]) != (verdict.status, verdict.score, verdict.reasons):
-                updates.append((verdict.status, verdict.score, json.dumps(verdict.reasons, ensure_ascii=False),
+            found = offer_verdict(offer)
+            if found is None:
+                offers_skipped += 1
+                continue
+            before, after = _describe(offer["status"], offer["score"]), _describe(found.status, found.score)
+            if (offer["status"], offer["score"], offer["reasons"]) != (found.status, found.score, found.reasons):
+                updates.append((found.status, found.score, json.dumps(found.reasons, ensure_ascii=False),
                                 offer["company"], offer["key"]))
                 if before != after:
                     offer_changes.append(Change(company=offer["company"], title=offer["title"], before=before,
@@ -56,13 +72,15 @@ def rescore(write: bool = True) -> RescoreReport:
 
         in_offers = {(row["company"], row["key"]) for row in rows}
         listed_rows = conn.execute("SELECT * FROM listed_offers WHERE kept IS NOT NULL").fetchall()
-        listed_changes, kept_without_detail, listed_updates = [], [], []
+        listed_changes, kept_without_detail, listed_updates, listed_skipped = [], [], [], 0
         for row in listed_rows:
-            offer = CheckedOffer(title=row["title"], location=row["location"], link=row["link"], reference="",
-                                 verified=bool(row["verified"]), key=row["key"], domain=row["domain"],
-                                 category=row["category"], secondary_category=row["secondary_category"])
-            reasons = listing_rejections(offer, row["company"])
-            kept, reason = int(not reasons), "; ".join(reasons)
+            query = OfferInput(company=row["company"], title=row["title"], location=row["location"])
+            found = verdict(query, _listed_asked(row), row["domain"])
+            if found is None:
+                listed_skipped += 1
+                continue
+            rejected = found.status == "rejected"
+            kept, reason = int(not rejected), "; ".join(found.reasons) if rejected else ""
             if (kept, reason) != (row["kept"], row["reject_reason"] or ""):
                 listed_updates.append((kept, reason, row["company"], row["key"]))
             if kept != row["kept"]:
@@ -79,5 +97,6 @@ def rescore(write: bool = True) -> RescoreReport:
             conn.rollback()
     finally:
         conn.close()
-    return RescoreReport(offers=len(rows), offer_changes=offer_changes, listed=len(listed_rows),
-                         listed_changes=listed_changes, kept_without_detail=kept_without_detail)
+    return RescoreReport(offers=len(rows), offer_changes=offer_changes, offers_not_rescored=offers_skipped,
+                         listed=len(listed_rows), listed_changes=listed_changes, listed_not_rescored=listed_skipped,
+                         kept_without_detail=kept_without_detail)
