@@ -23,6 +23,8 @@ from typing import Annotated, Literal
 from pydantic import BaseModel, ConfigDict, Field, TypeAdapter, ValidationError, field_validator, model_validator
 
 MAX_PROFILE_CHARS = 1000    # a short context for the LLM, never a CV
+MAX_LABEL_CHARS = 50        # name of a criterion in the reasons shown
+MAX_EVIDENCE_CHARS = 150    # quote shown in a reason
 
 # Domains of the triage (offers/triage.py), a closed list with what the LLM is told about each one.
 # General, never the user's preferences: KEPT_DOMAINS in user_config.py chooses among them.
@@ -70,7 +72,17 @@ class _Effect(BaseModel):
 class Criterion(_Effect):
     """A question answered by the LLM with yes / no / unknown and a quote of the ad."""
     ask: str = Field(min_length=1)
+    label: str | None = Field(default=None, min_length=1, max_length=MAX_LABEL_CHARS)   # shown instead of the question
     absence: bool = False       # "yes" accepted without a quote, only when the full ad was read
+
+    @property
+    def short(self) -> str:
+        """Name shown with a reason: the label, else the question cut."""
+        if self.label:
+            return self.label
+        if len(self.ask) <= MAX_LABEL_CHARS:
+            return self.ask
+        return self.ask[:MAX_LABEL_CHARS].rsplit(" ", 1)[0].rstrip(",;:") + "…"      # cut between words
 
     @model_validator(mode="after")
     def absence_gives_points(self):
@@ -271,12 +283,17 @@ def _code_matches(settings: Settings, company: str, posted: date | None, today: 
     return matches
 
 
+def _cut(quote: str) -> str:
+    quote = " ".join(quote.split())
+    return quote if len(quote) <= MAX_EVIDENCE_CHARS else quote[:MAX_EVIDENCE_CHARS - 1].rstrip() + "…"
+
+
 def judge(settings: Settings, checked: list[CheckedAnswer], company: str, posted: date | None,
           today: date) -> Verdict:
     """Any reject criterion answered yes rejects the offer. Otherwise score = sum of the points of the
     "yes" criteria, only the best one per group. An absence is contradicted (and dropped) by another
     "yes" of its group: "no experience asked" cannot hold next to "exactly 3 years asked"."""
-    matches = [_Match(label=c.ask, evidence=answer.quote or "absent from the ad", reject=bool(c.reject),
+    matches = [_Match(label=c.short, evidence=_cut(answer.quote) or "absent from the ad", reject=bool(c.reject),
                       points=c.points or 0, group=c.group, absence=c.absence)
                for c, answer in zip(settings.criteria, checked) if answer.answer == "yes"]
     matches += _code_matches(settings, company, posted, today)

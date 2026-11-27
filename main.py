@@ -74,7 +74,7 @@ def show(result: dict) -> None:
     for o in good[:config.MAX_DISPLAY]:
         print(f"\n{o['score']:4d}  {o['title']} @ {o['company']}  [{o['source']}]")
         for reason in o["reasons"]:
-            print(f"      {reason[:160]}")
+            print(f"      {reason}")
         if o.get("location") and o["location"] != "unknown":
             print(f"      Location: {o['location']}")
         if o["link"]:

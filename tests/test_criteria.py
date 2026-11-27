@@ -219,3 +219,25 @@ def test_posted_older_than_days_needs_a_known_date():
 def test_llm_and_code_criteria_add_up():
     result, _ = verdict(answers(c2=("yes", "SOC"), c7=("yes", "Genève")), company="Pictet", posted=date(2026, 9, 1))
     assert result.score == 25 + 15 + 20 - 5
+
+
+# ---------- reasons shown ----------
+
+def test_a_reason_shows_the_label_or_the_question_cut_then_the_quote_cut():
+    settings = load_settings("Short profile", [
+        {"ask": "Is the main workplace in Geneva (the city, not the canton)?", "points": 15, "label": "Geneva"},
+        {"ask": "Does the ad explicitly describe the position as junior, graduate or entry-level?", "points": 20},
+    ], [], ["Technology/IT"])
+    long_quote = "junior " + "x" * 300
+    text = f"Lieu : Genève\n{long_quote}"
+    checked = check_answers(settings, [Answer(id="c1", answer="yes", quote="Genève"),
+                                       Answer(id="c2", answer="yes", quote=long_quote[:290])], text, True)
+    reasons = judge(settings, checked, "", None, TODAY).reasons
+    assert reasons[0] == "Geneva (+15): 'Genève'"
+    label, quote = reasons[1].split(" (+20): ")
+    assert label == "Does the ad explicitly describe the position as…" and len(label) <= 50
+    assert len(quote) <= 152 and quote.endswith("…'")
+
+
+def test_a_label_is_short():
+    assert "label" in error(criteria=[{**POINTS, "label": "x" * 51}])

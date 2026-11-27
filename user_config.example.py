@@ -38,15 +38,17 @@ PROFILE = "Recent graduate in computer science, looking for an entry-level IT jo
 # "yes" of the group counts. "absence": True: the answer is the absence of something in the ad, so a
 # "yes" needs no quote; it counts only when the full ad was read. Unknown never rejects, never gives points.
 # Write every instruction in the question itself: comments are never sent to the LLM.
+# "label" (optional, at most 50 characters): the short name shown with the reasons, instead of the question.
 CRITERIA = [
-    {"ask": "Is the job located outside Switzerland?", "reject": True},
-    {"ask": "Is it a senior, lead or principal position?", "reject": True},
-    {"ask": "Is the job about cybersecurity?", "points": 30, "group": "job type"},
-    {"ask": "Is the job about software development?", "points": 20, "group": "job type"},
-    {"ask": "Is the position explicitly junior, graduate or entry-level?", "points": 20},
-    {"ask": "Does the full ad mention no experience requirement at all?", "points": 10, "absence": True},
-    {"ask": "Is the job in Geneva or Lausanne?", "points": 15},
-    {"ask": "Is it an internship?", "points": -10},
+    {"ask": "Is the main workplace outside Switzerland?", "reject": True, "label": "abroad"},
+    {"ask": "Is it a senior, lead or principal position?", "reject": True, "label": "senior"},
+    {"ask": "Is the job about cybersecurity?", "points": 30, "group": "job type", "label": "security"},
+    {"ask": "Is the job about software development?", "points": 20, "group": "job type", "label": "software"},
+    {"ask": "Is the position explicitly junior, graduate or entry-level?", "points": 20, "label": "entry level"},
+    {"ask": "Does the full ad mention no experience requirement at all?", "points": 10, "absence": True,
+     "label": "no experience asked"},
+    {"ask": "Is the main workplace in Geneva or Lausanne?", "points": 15, "label": "Geneva or Lausanne"},
+    {"ask": "Is it an internship?", "points": -10, "label": "internship"},
 ]
 
 # Criteria checked by code, without any LLM: "company_in" (whole names, case-insensitive) and
