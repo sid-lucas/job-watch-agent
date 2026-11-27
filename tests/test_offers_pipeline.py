@@ -426,6 +426,43 @@ def test_listed_offers_deferred_are_not_saved(criteria, only_local):
     conn.close()
 
 
+def test_listed_offers_kept_again_later_get_their_page_opened_and_stored(criteria, monkeypatch):
+    """--open-details: known listed offers kept by a rescore, never opened, are detailed and stored."""
+    from job_watch.list_agent.collect import keep
+    from job_watch.offers.listed import connect as connect_listed, save_listed_offers
+    config.REGISTRY_PATH.write_text(json.dumps({"Bank": {"status": "ok", "jobs_url": "https://bank.example/jobs"},
+                                                "Gone": {"status": "blocked", "jobs_url": "https://gone.example"}}))
+    with_page = listed("a", "SOC Analyst", "https://bank.example/a")
+    no_link = listed("b", "SOC Engineer")
+    elsewhere = listed("c", "SOC Lead", "https://gone.example/c")
+    stored = listed("d", "Developer", "https://bank.example/d")
+    for offer in (with_page, no_link, elsewhere, stored):
+        offer.domain, offer.asked = "Technology/IT", asked([("c2", "yes", "SOC")])
+    conn = connect_listed()
+    save_listed_offers(conn, "Bank", [with_page, no_link, stored], "2026-11-01", keep=keep)
+    save_listed_offers(conn, "Gone", [elsewhere], "2026-11-01", keep=keep)
+    conn.close()
+    storage.save_offers([{**rss_offer("https://bank.example/d", "Developer"), "key": "d", "source": "career_site"}])
+
+    assert career_sites.open_missing_details(write=False).model_dump() == {
+        "companies": 1, "pages_to_open": 1, "skipped": {"no_link": 1}, "not_in_registry": ["Gone"],
+        "stored": 0, "deferred": 0}
+    opened = []
+
+    def fake_details(collection, log=None):
+        opened.extend(o.key for o in collection.offers)
+        return details("Bank", [DetailAnswers(key="a", asked=asked([("c2", "yes", "SOC")], full_ad=True))],
+                       {"a": "SOC Analyst\nPosted 2 Days Ago"})
+    monkeypatch.setattr(career_sites, "collect_details", fake_details)
+    report = career_sites.open_missing_details()
+    assert opened == ["a", "b"] and report.stored == 2
+    conn = storage.connect()
+    rows = conn.execute("SELECT key, full_ad, score, published != '' FROM offers WHERE company = 'Bank' ORDER BY key").fetchall()
+    conn.close()
+    assert rows == [("a", 1, 30, 1), ("b", 0, 30, 0), ("d", None, 30, 0)]      # b: listing answers, no page
+    assert career_sites.open_missing_details(write=False).pages_to_open == 0     # nothing left to open
+
+
 def test_the_salary_line_of_the_feed_is_not_part_of_the_description():
     """The feed starts every description with its own salary estimate: never the employer's salary."""
     from job_watch.offers.nodes import without_board_salary

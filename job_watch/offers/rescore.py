@@ -43,14 +43,6 @@ def _describe(status: str, score: int | None) -> str:
     return "rejected" if status == "rejected" else f"kept, score {score}"
 
 
-def _listed_asked(row: sqlite3.Row) -> Asked | None:
-    if not row["criteria_questions"]:
-        return None
-    answers = None if row["criteria_answers"] is None else json.loads(row["criteria_answers"])
-    return Asked(criteria_questions=row["criteria_questions"], criteria_answers=answers,
-                 criteria_model=row["criteria_model"] or "", full_ad=False)
-
-
 def to_ask() -> tuple[int, int]:
     """(offers, listed offers) without answers to the current questions, whose domain is kept:
     what rescore(ask_missing=True) asks, one LLM call each."""
@@ -71,7 +63,7 @@ def _listed_query(row: sqlite3.Row) -> OfferInput:
 
 
 def _listed_verdict(row: sqlite3.Row):
-    return verdict(_listed_query(row), _listed_asked(row), row["domain"])
+    return verdict(_listed_query(row), listed.stored_asked(row), row["domain"])
 
 
 def _answers_json(asked: Asked) -> str | None:

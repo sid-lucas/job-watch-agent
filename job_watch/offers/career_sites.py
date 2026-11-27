@@ -10,13 +10,19 @@ A company that fails is logged and skipped: the others are still collected. Noth
 written here: save_results stores the offers and listed_offers together, at the end.
 """
 import difflib
+import sqlite3
 import traceback
 from datetime import datetime, timezone
 
+from pydantic import BaseModel
+
 from job_watch.list_agent.collect import CompanyCollection, DetailCollection, collect_company, collect_details
+from job_watch.list_agent.detail import plan_details
+from job_watch.list_agent.extraction import CheckedOffer
+from job_watch.offers import storage
 from job_watch.offers.dates import posted_in_text
-from job_watch.offers.listed import connect as connect_listed
-from job_watch.offers.nodes import wants
+from job_watch.offers.listed import connect as connect_listed, stored_asked
+from job_watch.offers.nodes import score_offers, wants
 from job_watch.offers.state import JobState, Offer
 from job_watch.registry.store import load_registry
 
@@ -68,6 +74,77 @@ def to_offers(collection: CompanyCollection, details: DetailCollection, fetched:
             offer.update(asked.model_dump())
         offers.append(offer)
     return offers
+
+
+# ---------- listed offers kept again later, never opened ----------
+
+class MissingDetails(BaseModel):
+    companies: int
+    pages_to_open: int                  # also the criteria calls (one per page accepted)
+    skipped: dict[str, int]             # offers not opened: no link, other site... stored without detail;
+                                        # "budget": left for the next --open-details
+    not_in_registry: list[str]          # companies whose job list is not in the registry ("ok"): left as they are
+    stored: int = 0                     # offers written to offers
+    deferred: int = 0                   # criteria waiting for the next run (only local models left)
+
+
+def _missing_by_company() -> dict[str, list[CheckedOffer]]:
+    """Listed offers kept by the filter (rescore) that are not in offers: set aside when first seen,
+    kept again by a later change of the criteria, so their page was never opened."""
+    conn = connect_listed()
+    conn.row_factory = sqlite3.Row
+    try:
+        stored = {(r[0], r[1]) for r in conn.execute("SELECT company, key FROM offers")}
+        rows = conn.execute("SELECT * FROM listed_offers WHERE kept = 1 ORDER BY company, first_seen").fetchall()
+    finally:
+        conn.close()
+    missing: dict[str, list[CheckedOffer]] = {}
+    for row in rows:
+        if (row["company"], row["key"]) in stored:
+            continue
+        missing.setdefault(row["company"], []).append(CheckedOffer(
+            title=row["title"], location=row["location"], link=row["link"], reference="",
+            verified=bool(row["verified"]), key=row["key"], domain=row["domain"],
+            triage_reason=row["triage_reason"] or "", asked=stored_asked(row)))
+    return missing
+
+
+def open_missing_details(write: bool = True) -> MissingDetails:
+    """Open the pages of the listed offers kept again later (see _missing_by_company), with the same
+    detail phase as a run: own link on the list's domain, not shared, MAX_DETAIL_PAGES per company,
+    pause, BrowserSession guard and robots.txt, title check; criteria on the page text, then stored
+    in offers with their score (without detail: the answers on the listing data). write=False: count
+    only, nothing opened, no LLM call."""
+    registry = dict(registry_companies(load_registry()))
+    missing = _missing_by_company()
+    fetched = datetime.now(timezone.utc).isoformat()
+    report = MissingDetails(companies=0, pages_to_open=0, skipped={},
+                            not_in_registry=sorted(c for c in missing if c not in registry))
+    found: list[Offer] = []
+    for company, offers in missing.items():
+        if company not in registry:
+            continue
+        report.companies += 1
+        keys = [o.key for o in offers]
+        collection = CompanyCollection(company=company, url=registry[company], stop="rescore", pages_reached=0,
+                                       offers=offers, new_keys=keys, seen=fetched, new_kept=list(offers),
+                                       failed_chunks=0, model_calls={}, seconds=0)
+        plan = plan_details(offers, keys, keys, registry[company])
+        report.pages_to_open += len(plan.to_open)
+        for skipped in plan.skipped:
+            report.skipped[skipped.reason] = report.skipped.get(skipped.reason, 0) + 1
+        if not write:
+            continue
+        print(f"  {company}: {len(plan.to_open)} pages to open, {len(plan.skipped)} offers without detail", flush=True)
+        details = collect_details(collection, log=log)
+        report.deferred += len(details.deferred)
+        waiting = set(details.deferred) | {s.key for s in plan.skipped if s.reason == "budget"}
+        collection.new_kept = [o for o in offers if o.key not in waiting]
+        found += to_offers(collection, details, fetched)
+    if write and found:
+        scored = score_offers({"offers": found})["offers"]
+        report.stored = len(storage.save_offers(scored))
+    return report
 
 
 def log(line: str) -> None:

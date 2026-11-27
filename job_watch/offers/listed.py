@@ -15,6 +15,7 @@ from pathlib import Path
 
 from job_watch import config
 from job_watch.list_agent.extraction import CheckedOffer
+from job_watch.offers.scoring import Asked
 
 SCHEMA = """
 CREATE TABLE IF NOT EXISTS listed_offers (
@@ -65,6 +66,15 @@ def now_iso() -> str:
 def known_keys(conn: sqlite3.Connection, company: str) -> set[str]:
     """Keys of the offers of this company already in listed_offers (read only)."""
     return {row[0] for row in conn.execute("SELECT key FROM listed_offers WHERE company = ?", (company,))}
+
+
+def stored_asked(row: sqlite3.Row) -> Asked | None:
+    """Criteria answered on the listing data, as stored with a listed offer (None: never asked)."""
+    if not row["criteria_questions"]:
+        return None
+    answers = None if row["criteria_answers"] is None else json.loads(row["criteria_answers"])
+    return Asked(criteria_questions=row["criteria_questions"], criteria_answers=answers,
+                 criteria_model=row["criteria_model"] or "", full_ad=False)
 
 
 def _asked_values(offer: CheckedOffer) -> tuple:
