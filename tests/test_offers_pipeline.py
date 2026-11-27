@@ -120,6 +120,20 @@ def test_to_offers_keeps_offers_without_detail():
     assert found[0]["published"] == "" and found[1]["list_url"] == "https://bank.example/jobs"
 
 
+def test_the_publication_date_of_a_page_is_read_by_the_code():
+    from datetime import date
+    from job_watch.offers.scoring import posted_date
+    a = listed("a", "ML Engineer", "https://bank.example/a")
+    found = career_sites.to_offers(collection("Bank", [a]),
+                                   details("Bank", [detail_answers("a")], {"a": "ML Engineer\nPosted 3 Days Ago"}),
+                                   "2026-11-27T10:00:00+00:00")
+    assert found[0]["published"] == "2026-11-24"
+    # A stored page without a date: the relative date is read from the text and the fetch day
+    stored = {**found[0], "published": "", "fetched": "2026-11-20T08:00:00+00:00"}
+    assert posted_date(stored) == date(2026, 11, 17)
+    assert posted_date({**stored, "source": "swissdevjobs"}) is None          # an RSS description is not read
+
+
 def test_a_company_that_fails_does_not_stop_the_others(monkeypatch):
     config.REGISTRY_PATH.write_text(json.dumps({
         "Broken": {"status": "ok", "jobs_url": "https://broken.example/jobs"},

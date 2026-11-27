@@ -24,6 +24,7 @@ from job_watch import config
 from job_watch.llm import calls_since, model_calls, only_local_left
 from job_watch.offers.ask_criteria import OfferInput, answer_offer, check_offer
 from job_watch.offers.criteria import Answer, Verdict, judge
+from job_watch.offers.dates import posted_in_text
 
 
 class Asked(BaseModel):
@@ -72,11 +73,22 @@ def ask(query: OfferInput, full_ad: bool, log: Callable[[str], None] | None = No
                  full_ad=full_ad)
 
 
-def posted_date(offer: dict) -> date | None:
+def _day(value: str | None) -> date | None:
     try:
-        return datetime.fromisoformat(offer["published"]).date() if offer.get("published") else None
+        return datetime.fromisoformat(value).date() if value else None
     except ValueError:
         return None
+
+
+def posted_date(offer: dict) -> date | None:
+    """Publication date: the one of the source (RSS feed), else a relative date of the stored page
+    text of a career-site offer, counted back from the day it was fetched."""
+    if published := _day(offer.get("published")):
+        return published
+    fetched = _day(offer.get("fetched"))
+    if offer.get("source") == "career_site" and offer.get("description") and fetched:
+        return posted_in_text(offer["description"], fetched)
+    return None
 
 
 def verdict(query: OfferInput, asked: Asked | None, domain: str | None, posted: date | None = None,

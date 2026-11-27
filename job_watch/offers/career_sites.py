@@ -14,6 +14,7 @@ import traceback
 from datetime import datetime, timezone
 
 from job_watch.list_agent.collect import CompanyCollection, DetailCollection, collect_company, collect_details
+from job_watch.offers.dates import posted_in_text
 from job_watch.offers.listed import connect as connect_listed
 from job_watch.offers.nodes import wants
 from job_watch.offers.state import JobState, Offer
@@ -56,8 +57,11 @@ def to_offers(collection: CompanyCollection, details: DetailCollection, fetched:
     by_key = {d.key: d for d in details.details}
     offers = []
     for listed in collection.new_kept:
+        text = details.texts.get(listed.key, "")
+        posted = posted_in_text(text, datetime.fromisoformat(fetched).date()) if text else None
         offer = Offer(key=listed.key, title=listed.title, company=collection.company, location=listed.location,
-                      description=details.texts.get(listed.key, ""), source=SOURCE, link=listed.link, published="",
+                      description=text, source=SOURCE, link=listed.link,
+                      published=posted.isoformat() if posted else "",
                       fetched=fetched, list_url=collection.url, domain=listed.domain)
         asked = by_key[listed.key].asked if listed.key in by_key else listed.asked
         if asked is not None:
