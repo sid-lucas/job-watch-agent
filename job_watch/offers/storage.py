@@ -149,3 +149,29 @@ def save_offers(offers: list[dict],
     finally:
         conn.close()
     return [(o["company"], o["key"]) for o in new_offers]
+
+
+def kept_offers(company: str | None = None, min_score: int | None = None,
+                source: str | None = None) -> list[dict]:
+    """Kept offers of the whole database (config.DB_PATH), best score first, then the most recently
+    first seen. Read only: the file is opened without creating, migrating or writing anything.
+    company is matched without case; source exactly ("career_site", or an RSS source name)."""
+    if not config.DB_PATH.exists():
+        return []
+    conn = sqlite3.connect(f"file:{config.DB_PATH}?mode=ro", uri=True)
+    conn.row_factory = sqlite3.Row
+    try:
+        sql, params = "SELECT * FROM offers WHERE status = 'new' AND score IS NOT NULL", []
+        if company is not None:
+            sql += " AND lower(company) = lower(?)"
+            params.append(company)
+        if min_score is not None:
+            sql += " AND score >= ?"
+            params.append(min_score)
+        if source is not None:
+            sql += " AND source = ?"
+            params.append(source)
+        rows = conn.execute(sql + " ORDER BY score DESC, fetched DESC", params).fetchall()
+    finally:
+        conn.close()
+    return [row_to_offer(row) for row in rows]

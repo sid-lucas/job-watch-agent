@@ -8,17 +8,12 @@
 import argparse
 from collections import Counter
 from pathlib import Path
-from urllib.parse import quote_plus
 
 from job_watch import config
+from job_watch.offers.display import print_offer
 from job_watch.offers.graph import build_graph
 
 SOURCES = ("rss", "career_sites")
-
-
-def search_link(offer: dict) -> str:
-    """Build a web search link to find the offer on the company's own site."""
-    return "https://www.google.com/search?q=" + quote_plus(f"{offer['company']} {offer['title']}")
 
 
 def parse_args(argv: list[str] | None = None) -> argparse.Namespace:
@@ -87,16 +82,7 @@ def show(result: dict) -> None:
           f"{len(kept) - len(good)} below, {len(rejected)} rejected")
 
     for o in good[:config.MAX_DISPLAY]:
-        print(f"\n{o['score']:4d}  {o['title']} @ {o['company']}  [{o['source']}]")
-        for reason in o["reasons"]:
-            print(f"      {reason}")
-        if o.get("location") and o["location"] != "unknown":
-            print(f"      Location: {o['location']}")
-        if o["link"]:
-            print(f"            Offer:  {o['link']}")
-        else:
-            print(f"            List:   {o.get('list_url', '-')}  (no own link for this offer)")
-        print(f"            Search: {search_link(o)}")
+        print_offer(o)
 
     if len(good) > config.MAX_DISPLAY:
         print(f"\n... and {len(good) - config.MAX_DISPLAY} more above score {config.MIN_SCORE}")

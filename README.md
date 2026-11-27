@@ -60,6 +60,7 @@ python main.py --sources rss           # RSS feed only
 python main.py --sources career_sites --companies "Lombard Odier,ICRC"   # some registry companies only
 python main.py --db /tmp/try.db --registry /tmp/registry.json            # another database and registry
 LLM_ONLY=ollama python main.py ...     # local model only (Gemini quota exhausted)
+python -m scripts.show_offers [--top N] [--company NAME] [--min-score S] [--source SRC]   # best kept offers of the whole database (read only)
 python -u -m scripts.check_model gemini:MODEL   # structured output and tool calling of one model, before enabling it
 ```
 
