@@ -23,3 +23,20 @@ def test_one_line_per_agent_turn_with_result_model_and_duration():
     assert lines[1].startswith("turn 2: click(7, pagination) -> Clicked. Element numbers are now invalid. | qwen3:8b ")
     assert lines[2] == "turn 3: stop error (llm call 3: every model failed)"
     assert len(lines) == 3
+
+
+def test_offers_rejected_after_the_full_ad_are_listed_by_company(capsys):
+    import main
+    def offer(key, title, status, full_ad, reasons, source="career_site"):
+        return {"company": "Bank", "key": key, "title": title, "status": status, "full_ad": full_ad,
+                "reasons": reasons, "source": source}
+    result = {"new_offers": [("Bank", k) for k in "abcd"], "offers": [
+        offer("a", "Senior Engineer", "rejected", True, ["rejected: senior | 'Senior Engineer'"]),
+        offer("b", "Analyst", "new", True, ["SOC (+25): 'SOC'"]),
+        offer("c", "Lead", "rejected", False, ["rejected: senior | 'Lead'"]),              # listing only
+        offer("d", "Dev", "rejected", False, ["rejected: abroad | 'Paris'"], source="swissdevjobs"),
+        offer("e", "Old", "rejected", True, ["rejected: senior | 'Old'"])]}             # not new
+    main.show_rejected_after_detail(result)
+    assert capsys.readouterr().out == ("\nRejected after the full ad at Bank (1): title | criterion | quote\n"
+                                       "  Senior Engineer | senior | 'Senior Engineer'\n")
+

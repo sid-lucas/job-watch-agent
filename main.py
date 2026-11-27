@@ -55,6 +55,21 @@ def show_set_aside_at_listing(result: dict) -> None:
                 print(f"  {offer.title[:90]} | {'; '.join(r.removeprefix('rejected: ') for r in offer.rejected_by)}")
 
 
+def show_rejected_after_detail(result: dict) -> None:
+    """New career-site offers kept at the listing, then rejected by a criterion on the whole ad,
+    by company: title | criterion | quote."""
+    new_pairs = set(map(tuple, result.get("new_offers", [])))
+    rejected = [o for o in result["offers"] if (o["company"], o["key"]) in new_pairs
+                and o["source"] == "career_site" and o.get("full_ad") and o["status"] == "rejected"]
+    for company in dict.fromkeys(o["company"] for o in rejected):
+        offers = [o for o in rejected if o["company"] == company]
+        print(f"\nRejected after the full ad at {company} ({len(offers)}): title | criterion | quote")
+        for offer in offers:
+            for reason in offer["reasons"]:
+                criterion, _, quote = reason.removeprefix("rejected: ").partition(" | ")
+                print(f"  {offer['title'][:90]} | {criterion} | {quote}")
+
+
 def show(result: dict) -> None:
     """Print the new offers of the run, best scores first, as in V1."""
     new_pairs = set(map(tuple, result.get("new_offers", [])))
@@ -103,6 +118,7 @@ def main(argv: list[str] | None = None) -> dict:
     result = build_graph().invoke(state)
     show(result)
     show_set_aside_at_listing(result)
+    show_rejected_after_detail(result)
     return result
 
 
