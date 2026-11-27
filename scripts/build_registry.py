@@ -24,15 +24,8 @@ def known_names(registry: dict) -> set[str]:
 
 
 def companies_to_search(registry: dict) -> list[str]:
-    alias_names = {a.lower() for aliases in config.COMPANY_ALIASES.values() for a in aliases}
     known = known_names(registry)
-    missing = []
-    for company in config.TOP_COMPANIES + config.GOOD_COMPANIES:
-        key = company.lower()
-        if key in alias_names or key in known or company in missing:
-            continue
-        missing.append(company)
-    return missing
+    return [company for company in config.SETTINGS.companies if company.lower() not in known]
 
 
 def new_entry(company: str) -> dict:
@@ -48,7 +41,7 @@ def new_entry(company: str) -> dict:
         else:
             blocked += 1
     return {
-        "aliases": config.COMPANY_ALIASES.get(company, []),
+        "aliases": config.SETTINGS.company(company).aliases,
         "status": "to_check",      # to_check -> ok / blocked / none
         "jobs_url": None,          # job list URL
         "platform": None,

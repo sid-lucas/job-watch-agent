@@ -11,28 +11,33 @@ POINTS = {"ask": "Is the job in Geneva?", "points": 15, "group": "location"}
 REJECT = {"ask": "Is the job abroad?", "reject": True}
 
 
-def error(profile="Short profile", criteria=(POINTS,), code_criteria=(), kept_domains=("Technology/IT",)) -> str:
+def error(profile="Short profile", criteria=(POINTS,), code_criteria=(), kept_domains=("Technology/IT",),
+          companies=None) -> str:
     with pytest.raises(SystemExit) as raised:
-        load_settings(profile, list(criteria), list(code_criteria), list(kept_domains))
+        load_settings(profile, list(criteria), list(code_criteria), list(kept_domains),
+                      companies={"Pictet": {"tier": "top"}} if companies is None else companies)
     return str(raised.value)
 
 
 def test_valid_settings_are_loaded():
     settings = load_settings("Short profile", [POINTS, REJECT, {"ask": "No experience asked?", "points": 10,
                                                                 "absence": True}],
-                             [{"type": "company_in", "names": ["Pictet"], "points": 20, "group": "company"},
+                             [{"type": "company_tier", "tier": "top", "points": 20, "group": "company"},
                               {"type": "posted_older_than_days", "days": 30, "points": -5}],
-                             ["Technology/IT", "Other", "Other"])
+                             ["Technology/IT", "Other", "Other"],
+                             companies={"Pictet": {"tier": "top"}, "État de Genève": {"domains": ["ge.ch"]}})
     assert [c.points for c in settings.criteria] == [15, None, 10]
     assert settings.criteria[1].reject and settings.criteria[2].absence
-    assert [c.type for c in settings.code_criteria] == ["company_in", "posted_older_than_days"]
+    assert [c.type for c in settings.code_criteria] == ["company_tier", "posted_older_than_days"]
+    assert settings.company("État de Genève").domains == ["ge.ch"] and settings.company("Unknown").aliases == []
     assert settings.kept_domains == ["Technology/IT", "Other"]
 
 
 def test_the_example_config_is_valid():
     example = runpy.run_path(str(config.BASE_DIR / "user_config.example.py"))
-    assert load_settings(example["PROFILE"], example["CRITERIA"], example["CODE_CRITERIA"],
-                         example["KEPT_DOMAINS"], example["RSS_FEEDS"]).rss_feeds
+    settings = load_settings(example["PROFILE"], example["CRITERIA"], example["CODE_CRITERIA"],
+                             example["KEPT_DOMAINS"], example["RSS_FEEDS"], example["COMPANIES"])
+    assert settings.rss_feeds and settings.tier_names("top")
 
 
 @pytest.mark.parametrize("criterion, expected", [
@@ -67,9 +72,9 @@ def test_criteria_must_not_be_empty():
 @pytest.mark.parametrize("code_criterion, expected", [
     ({"type": "salary_above", "points": 5}, 'CODE_CRITERIA[0]'),
     ({"names": ["Pictet"], "points": 5}, 'missing or unknown "type"'),
-    ({"type": "company_in", "names": [], "points": 5}, "names"),
-    ({"type": "company_in", "names": [""], "points": 5}, "names"),
-    ({"type": "company_in", "names": ["Pictet"]}, "exactly one of them"),
+    ({"type": "company_tier", "tier": "", "points": 5}, "tier"),
+    ({"type": "company_tier", "tier": "top"}, "exactly one of them"),
+    ({"type": "company_tier", "tier": "gold", "points": 5}, "no company of COMPANIES has the tier 'gold'"),
     ({"type": "posted_older_than_days", "days": 0, "points": -5}, "days"),
     ({"type": "posted_older_than_days", "days": 30, "points": -5, "names": ["x"]}, "unknown key"),
 ])
@@ -101,10 +106,11 @@ SETTINGS = load_settings("Short profile", [
     {"ask": "Exactly 3 years asked?", "points": -5, "group": "experience"},                # c6
     {"ask": "Is the job in Geneva?", "points": 15},                                        # c7
 ], [
-    {"type": "company_in", "names": ["Pictet", "Lombard Odier"], "points": 20, "group": "company"},
-    {"type": "company_in", "names": ["UBS", "Lombard"], "points": 10, "group": "company"},
+    {"type": "company_tier", "tier": "top", "points": 20, "group": "company"},
+    {"type": "company_tier", "tier": "good", "points": 10, "group": "company"},
     {"type": "posted_older_than_days", "days": 30, "points": -5},
-], ["Technology/IT"])
+], ["Technology/IT"], companies={"Pictet": {"tier": "top"}, "Lombard Odier": {"tier": "top"},
+                                  "UBS": {"tier": "good", "aliases": ["Lombard"]}})
 
 
 def answers(**given) -> list[Answer]:
@@ -204,9 +210,9 @@ def test_an_absence_is_contradicted_by_another_yes_of_its_group():
 
 # ---------- code criteria ----------
 
-def test_company_in_matches_whole_names_and_the_best_of_the_group_counts():
-    assert verdict([], company="Banque Lombard Odier & Co")[0].score == 20     # top list beats "Lombard" (+10)
-    assert verdict([], company="UBS Switzerland AG")[0].reasons == ["company in list (+10): 'UBS'"]
+def test_company_tier_matches_names_and_aliases_and_the_best_of_the_group_counts():
+    assert verdict([], company="Banque Lombard Odier & Co")[0].score == 20     # top beats the alias "Lombard" (+10)
+    assert verdict([], company="UBS Switzerland AG")[0].reasons == ["good company (+10): 'UBS'"]
     assert verdict([], company="SUBSEA Ltd")[0].score == 0                     # not a whole name
 
 
@@ -241,3 +247,14 @@ def test_a_reason_shows_the_label_or_the_question_cut_then_the_quote_cut():
 
 def test_a_label_is_short():
     assert "label" in error(criteria=[{**POINTS, "label": "x" * 51}])
+
+
+@pytest.mark.parametrize("companies, expected", [
+    ({"Pictet": {"tier": "top", "alias": ["P"]}}, "COMPANIES['Pictet'] alias: unknown key"),
+    ({"Pictet": {"tier": "top"}, "Bank": {"aliases": ["pictet"]}}, "'pictet' names two companies"),
+    ({"Pictet": {"tier": "top"}, "Etat": {"domains": ["https://ge.ch"]}}, "COMPANIES['Etat'] domains"),
+    ({"Pictet": {"tier": "top"}, "": {}}, "COMPANIES"),
+])
+def test_a_bad_company_is_named_in_the_error(companies, expected):
+    assert expected in error(companies=companies)
+

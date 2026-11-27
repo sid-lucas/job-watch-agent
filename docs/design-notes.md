@@ -5,8 +5,8 @@ How things work and why they were built this way. Unordered notes, updated along
 ## Configuration
 
 - `job_watch/config.py`: technical settings (paths, models, web access), committed.
-- `user_config.py`: personal settings (companies, aliases, company domains, profile, criteria, kept triage domains, RSS feeds with a domain-triage flag each), not committed. Each user has their own; `user_config.example.py` is the template.
-- `config.py` re-exports the personal settings, so the rest of the code only imports `config`. A missing `user_config.py` stops the program with a clear message; a missing variable raises an import error naming it. `PROFILE`, `CRITERIA`, `CODE_CRITERIA` and `KEPT_DOMAINS` are validated at import (`offers/criteria.py`, Pydantic): missing "ask", both "reject" and "points", "group" or "absence" on a reject criterion, a "label" over 50 characters, unknown key or code criterion type, the same question twice, an unknown triage domain; each problem is one line naming the criterion.
+- `user_config.py`: personal settings (`COMPANIES` with their tier, aliases, domains and context; profile, criteria, kept triage domains, RSS feeds with a domain-triage flag each), not committed. Each user has their own; `user_config.example.py` is the template.
+- `config.py` re-exports the personal settings, so the rest of the code only imports `config`. A missing `user_config.py` stops the program with a clear message; a missing variable raises an import error naming it. `PROFILE`, `CRITERIA`, `CODE_CRITERIA`, `KEPT_DOMAINS`, `RSS_FEEDS` and `COMPANIES` are validated at import (`offers/criteria.py`, Pydantic): missing "ask", both "reject" and "points", "group" or "absence" on a reject criterion, a "label" over 50 characters, unknown key or code criterion type, the same question twice, an unknown triage domain, a name or alias shared by two companies, a `company_tier` tier that no company has; each problem is one line naming the criterion or the company.
 
 ## Project layout
 
@@ -65,13 +65,13 @@ Temporary failures (page that does not load, robots.txt unreadable, LLM API unav
 Matching a domain with a company:
 - Accents and hyphens are removed on both sides ("Edmond de Rothschild" matches `edmond-de-rothschild.com`).
 - Short names (under 5 characters) must start a domain label ("Syz" matches `syzgroup.com`); longer names may appear anywhere in it.
-- `COMPANY_DOMAINS` in `user_config.py` declares domains that do not carry the name (`ge.ch` for État de Genève).
+- `"domains"` of a company in `COMPANIES` (`user_config.py`) declares domains that do not carry the name (`ge.ch` for État de Genève).
 
 Other choices:
 - Shortest path among matching links: usually the job list root, not a single offer.
 - Greenhouse: a single offer URL is reduced to the company board (`/<company>`), because expired offers redirect to an error page.
 - `resolved_by` records how the URL was found (`platform rule`, `browser + job subdomain rule`, `candidate judge`...). Entries edited by hand (no `resolved_by`) are never changed; entries verified by the judge are not recomputed by the rules.
-- Aliases (`COMPANY_ALIASES`) avoid paying two searches for the same company.
+- Every company of `COMPANIES` is a target; its `"aliases"` avoid paying two searches for the same company, `"context"` helps the page judge when the name is shared, and `"tier"` gives points through the `company_tier` code criteria.
 - The browser only opens pages on the company's own domain (2 at most), once per company.
 - `evals/check_page_judge.py` is the judge's test set: pages verified by hand, run again after any change to the judge or the browser.
 - `scripts/show_registry.py` gives a read-only overview: status, URL, and whether it was confirmed by the judge.
@@ -112,7 +112,7 @@ Tests:
 - `tests/test_click_rules.py`: the rules on real controls collected on BCN, UBS, Lombard Odier, Rolex and ICRC, plus synthetic traps (a "Next" button whose accessible name is "Apply now", a login form whose button is "Next").
 - `tests/trap_site/` + `tests/test_session_trap.py`: a local website full of traps (prompt injection in the text, Apply and Sign in buttons, "Next" links to another host or to a robots.txt-forbidden path, POST form, popup, covered button, cookie banner that breaks the list, banner in an iframe). After each test, the server log must show only GET requests, no trap page and no other host: "forbidden actions executed = 0". Disabling a guardrail makes tests fail.
 
-Evaluation (`evals/check_list_agent.py`, cases in `evals/cases/list_agent.json`): 12 job lists checked by hand (6 banks and security, 6 watchmakers), with the total announced by the page and sample titles, some beyond page 1. Baseline with the previous extractor (page 1 only): 100 % on single-page lists, 8 to 38 % on paginated lists. The agent will be measured on the same cases.
+Evaluation (`evals/check_list_agent.py`, cases in `evals/cases/list_agent.json`): 12 job lists checked by hand (6 banks and security, 6 watchmakers), with the total announced by the page and sample titles, some beyond page 1. Baseline measured with the former single-page extractor (removed since): 100 % on single-page lists, 8 to 38 % on paginated lists. The agent is measured on the same cases.
 
 Pipeline (`main.py`, node `fetch_career_sites` in the V1 graph, after `fetch_rss`), per registry company with status `ok`:
 1. Navigation: the list agent walks the pages (above). Budgets in code (`config.py`), whatever the agent decides: at most `AGENT_MAX_LLM_CALLS` agent turns (stop `llm_budget`), and a stop after `AGENT_MAX_CLICKS_WITHOUT_NEW_CONTENT` pagination clicks in a row whose observation brings no line seen in no earlier observation of the run (stop `no_new_content`: going back and forth between pages already read counts as nothing new). LangGraph's `recursion_limit` stays above them as a safety net.
@@ -134,7 +134,7 @@ Known limitations:
 - An offer stays in the database when it leaves the list: nothing marks it as closed yet.
 - The forbidden-action words cover four languages; other languages rely on the other guardrails (forms, navigation interception).
 - On a shared applicant tracking system domain, an offer link to another company on the same domain is accepted; the detail page must still contain the offer title.
-- A listed offer that a changed criterion keeps again has no detail (it was set aside before the detail phase): rescore reports it, it is not fetched.
+- A listed offer that a changed criterion keeps again has no detail (it was set aside before the detail phase) and, being known, no run opens it: `scripts.rescore --open-details` opens these pages with the detail phase of a run (same guardrails, `MAX_DETAIL_PAGES` per company; those over the budget wait for the next call), asks the criteria on the whole ad and stores them in `offers`; `--dry-run` gives the pages and calls first.
 - Publication date of career-site offers: read by the code from the first relative date of the page ("Posted 3 Days Ago", "il y a 3 jours", "vor 3 Tagen", today / yesterday; `offers/dates.py`), counted back from the day the page was read. An absolute date on the page is not read, and an open bound ("30+ Days Ago") gives no date: the offer then gets no "posted over N days ago" penalty. When the page shows other offers above the offer's own date, their date is taken.
 
 ## LLM usage
@@ -144,7 +144,7 @@ Known limitations:
 - Web content is untrusted (prompt injection): placed between tags, the model is told never to follow instructions found there.
 - "The prompt guides, the code constrains": links proposed by the model must come from the page or the search results, otherwise they are dropped.
 - Structured output with Pydantic schemas: answers are typed and checked in code.
-- Two judges: `page_judge` (is this page a job list?, V1.1) and `offer_judge` (does this offer still exist?, V1.3).
+- One judge: `page_judge` (is this page a job list?, V1.1). The judge of the verification agent (does this offer still exist?) comes with V1.3.
 - LLM chain (`MODEL_CHAIN` in `config.py`): one ordered list for every task (triage, list extraction, list agent, criteria, page judge), the first model is the preferred one; each entry can be disabled. Free tiers only: Gemini models first, local `qwen3:8b` (Ollama) as last resort. Mistral stays supported in code but is disabled (its free tier is not active: 402). A model is enabled only after `scripts/check_model.py` confirmed structured output and tool calling on it. `LLM_ONLY=ollama` runs a script with the local model only. Timeouts per request: 30 s Gemini, 60 s Mistral, 180 s Ollama (last model, slow on long pages).
 - Quotas are per model and per project on the Gemini API: a few hundred requests a day for the lite models, about twenty for the larger ones. A long run (a new database, many companies) can spend them all, and then only the local model is left.
 - Rate limits, read from the error (shared LangChain error classes; Google `quotaId` and `retryDelay`, HTTP `Retry-After`): a per-minute limit (requests or tokens) waits the given delay (at most 60 s) and retries the same model twice; a daily or monthly quota, a refused key (401, 403) or a payment required (402) skips the model for the rest of the run; a 429 that cannot be read is retried once after a short wait, then the model is skipped. Other errors only pass this call to the next model. Calls answered, failed, waited and skipped are counted per model and reported by the evals.
@@ -165,5 +165,5 @@ Known limitations:
 
 - Web content is untrusted, the model must answer "unknown" when unsure.
 - The official link must come from the search results, `same_offer` / `still_open` are only trusted on a real job posting page.
-- Serper budget: only offers above `MIN_VERIFY_SCORE`, at most `MAX_VERIFY_PER_RUN` per run, each offer verified once.
+- Serper budget: only offers above a score threshold, at most a few per run, each offer verified once (settings added with V1.3).
 - Separation: the verification agent reads the web but has no personal documents; the matching agent (V2) has the personal documents but no web access and no tools.

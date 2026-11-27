@@ -33,7 +33,7 @@ def domain_matches(url: str, names: list[str]) -> bool:
 
     # Domains declared in user_config, for names that do not appear in the domain
     for name in names:
-        for domain in config.COMPANY_DOMAINS.get(name, []):
+        for domain in config.SETTINGS.company(name).domains:
             if netloc == domain or netloc.endswith("." + domain):
                 return True
 

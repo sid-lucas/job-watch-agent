@@ -1,11 +1,9 @@
 """Measure offer collection on job lists checked by hand (evals/cases/list_agent.json).
 
-Two runners: the baseline (previous extractor on page 1 only, one LLM call per case) and the
-agent (navigation by the list agent, then extraction of every observation by the code).
-No Serper credits are used.
+The list agent navigates, then the code extracts the offers of every observation. No Serper credits
+are used.
 
-    python -m evals.check_list_agent                       # every case, baseline
-    python -m evals.check_list_agent --runner agent        # every case, agent
+    python -u -m evals.check_list_agent                    # every case
     python -m evals.check_list_agent --list watchmakers    # one company list
     python -m evals.check_list_agent --case UBS            # one case
     python -m evals.check_list_agent --quick               # 3 cases only, after each small change
@@ -15,7 +13,6 @@ import json
 import re
 import time
 import unicodedata
-from collections.abc import Callable
 from datetime import date
 from pathlib import Path
 from typing import Literal
@@ -24,9 +21,7 @@ from pydantic import BaseModel, ConfigDict, Field, model_validator
 
 from job_watch.list_agent.extraction import extract_observations
 from job_watch.list_agent.run import pages_reached, run_list_agent
-from job_watch.llm import call_with_retry, calls_since, model_calls
-from job_watch.offers.extract import MAX_CHARS, ListedOffer, extract_offers
-from job_watch.web.browser import render_page
+from job_watch.llm import calls_since, model_calls
 
 CASES_FILE = Path(__file__).parent / "cases" / "list_agent.json"
 # Quick check after each small change: two paginated banks lists and one watchmaker; all 12 cases
@@ -83,32 +78,20 @@ def select_cases(company_list: str | None = None, company: str | None = None, qu
 
 # ---------- Runners ----------
 
+class ListedOffer(BaseModel):
+    title: str
+    location: str
+    link: str
+
+
 class RunResult(BaseModel):
     offers: list[ListedOffer]
     seen_text: str              # all page text seen during the run, used to check grounding
     pages_reached: int
     llm_calls: int
     stop_reason: str
-    more_pages: bool | None = None
-    verified: int | None = None         # agent runner: offers whose link is verified in the page
-    failed_chunks: int | None = None    # agent runner: chunks for which every model failed
-
-
-Runner = Callable[[ListCase], RunResult | None]
-
-
-def baseline_runner(case: ListCase) -> RunResult | None:
-    """Current extractor on the first page only: one render, one LLM call, no clicks."""
-    page = render_page(case.url, max_chars=MAX_CHARS)
-    if page is None:
-        print(f"SKIP  {case.company:22} page not allowed or failed to load")
-        return None
-    answer = call_with_retry(extract_offers, case.company, page)
-    if answer is None:
-        print(f"SKIP  {case.company:22} LLM unavailable")
-        return None
-    return RunResult(offers=answer.offers, seen_text=page["text"], pages_reached=1, llm_calls=1,
-                     stop_reason="first page only", more_pages=answer.more_pages)
+    verified: int | None = None         # offers whose link is verified in the page
+    failed_chunks: int | None = None    # chunks for which every model failed
 
 
 def agent_runner(case: ListCase) -> RunResult | None:
@@ -129,7 +112,6 @@ def agent_runner(case: ListCase) -> RunResult | None:
     )
 
 
-RUNNERS = {"baseline": baseline_runner, "agent": agent_runner}
 
 
 # ---------- Metrics ----------
@@ -171,7 +153,6 @@ class CaseMetrics(BaseModel):
     pages_reached: int
     llm_calls: int
     stop_reason: str
-    more_pages: bool | None
     verified: int | None
     failed_chunks: int | None
     seconds: float
@@ -203,7 +184,6 @@ def measure(case: ListCase, result: RunResult, seconds: float) -> CaseMetrics:
         pages_reached=result.pages_reached,
         llm_calls=result.llm_calls,
         stop_reason=result.stop_reason,
-        more_pages=result.more_pages,
         verified=result.verified,
         failed_chunks=result.failed_chunks,
         seconds=round(seconds, 1),
@@ -224,7 +204,7 @@ def print_case(m: CaseMetrics, verbose: bool = False) -> None:
     print(f"      {m.company:22} offers {m.unique:4}/{expected:>4} ({pct(m.completeness)})  "
           f"dup {m.found - m.unique:2}  grounded {pct(m.grounded)}  links {m.with_link:4}  "
           f"samples {m.samples_found}/{m.samples_total} (p1 {m.samples_page1_found}/{m.samples_page1_total})  "
-          f"pages {m.pages_reached}  llm {m.llm_calls}  more_pages {m.more_pages}  "
+          f"pages {m.pages_reached}  llm {m.llm_calls}  "
           + (f"verified {m.verified}/{m.unique}  failed chunks {m.failed_chunks}  " if m.verified is not None else "")
           + f"{m.seconds}s  [{m.stop_reason}]")
     print(f"            models: {format_model_calls(m.model_calls)}")
@@ -255,7 +235,6 @@ def print_summary(metrics: list[CaseMetrics], skipped: int) -> None:
 
 def main() -> None:
     parser = argparse.ArgumentParser()
-    parser.add_argument("--runner", choices=sorted(RUNNERS), default="baseline")
     parser.add_argument("--list", choices=["banks_security", "watchmakers"])
     parser.add_argument("--case", help="company name of a single case")
     parser.add_argument("--quick", action="store_true", help=f"only {', '.join(QUICK_CASES)}")
@@ -268,7 +247,7 @@ def main() -> None:
     for case in cases:
         print(f"... {case.company}", flush=True)
         start, before = time.perf_counter(), model_calls()
-        result = RUNNERS[args.runner](case)
+        result = agent_runner(case)
         if result is None:
             skipped += 1
             continue

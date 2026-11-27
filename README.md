@@ -14,7 +14,7 @@ pip install -r requirements.txt
 playwright install chromium
 ```
 
-Personal settings (target companies, aliases, company domains, profile, criteria, kept triage domains, RSS feeds):
+Personal settings (target companies, profile, criteria, kept triage domains, RSS feeds):
 
 ```bash
 cp user_config.example.py user_config.py
@@ -37,7 +37,7 @@ job_watch/              application code (package)
   offers/               V1 pipeline: RSS and career sites -> triage -> criteria -> score -> SQLite (offers, listed_offers)
   list_agent/           V1.2 career sites: list agent (LangGraph), offer extraction, detail phase
   registry/             V1.1 career sites registry (storage, resolution rules, verification)
-  judges/               LLM judges (career pages, offers)
+  judges/               LLM judge of career pages
   web/                  web access (robots.txt, fetching), headless browser, web search
   config.py, llm.py     technical settings, shared LLM client
 scripts/                entry points for registry building and maintenance, rescoring, model checks
@@ -84,8 +84,8 @@ python -m scripts.add_registry_entry "COMPANY" URL   # add a known job list (rob
 
 `python -m evals.check_page_judge` runs the judge on pages verified by hand.
 
-Companies, aliases, your profile and your criteria (`PROFILE`, `CRITERIA`, `CODE_CRITERIA`) are set in `user_config.py`; see `user_config.example.py`. They are checked at startup: a problem stops the program with a message naming the criterion.
-`python -m scripts.rescore [--db PATH] [--dry-run]` applies changed settings to the stored answers, without any LLM call; `--ask` asks again the offers whose questions changed (`--ask --dry-run` counts the calls first).
+Target companies (`COMPANIES`: tier, aliases, domains, context), your profile and your criteria (`PROFILE`, `CRITERIA`, `CODE_CRITERIA`) are set in `user_config.py`; see `user_config.example.py`. They are checked at startup: a problem stops the program with a message naming the criterion.
+`python -m scripts.rescore [--db PATH] [--dry-run]` applies changed settings to the stored answers, without any LLM call; `--ask` asks again the offers whose questions changed, `--open-details` opens the pages of listed offers kept again later (`--dry-run` counts pages and calls first).
 
 ## Ideas
 

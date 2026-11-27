@@ -2,7 +2,6 @@ from urllib.parse import urlsplit
 from urllib.robotparser import RobotFileParser
 
 import requests
-from bs4 import BeautifulSoup
 
 from job_watch import config
 
@@ -49,16 +48,3 @@ def robots_status(url: str) -> str:
 def can_fetch(url: str) -> bool:
     """Return True only when the URL is explicitly allowed. Errors are treated as not allowed."""
     return robots_status(url) == ALLOWED
-
-
-def fetch_text(url: str) -> str:
-    """Fetch a page and return its visible text, truncated. Empty string if not allowed."""
-    if not can_fetch(url):
-        return ""
-    response = requests.get(url, headers={"User-Agent": config.USER_AGENT}, timeout=15)
-    response.raise_for_status()
-    soup = BeautifulSoup(response.text, "html.parser")
-    for tag in soup(["script", "style", "nav", "footer", "header"]):
-        tag.decompose()
-    text = soup.get_text(separator="\n", strip=True)
-    return text[:config.MAX_PAGE_CHARS]

@@ -42,7 +42,7 @@ Only use links that appear in <links>. When you are not sure, choose 'other' and
 def judge_page(company: str, page: dict, context: str | None = None) -> PageCheck:
     """Ask the LLM what kind of page this is, then check its answer in code."""
     if context is None:
-        context = config.COMPANY_CONTEXT.get(company, "")
+        context = config.SETTINGS.company(company).context
     about = f"\nAbout the company: {context}" if context else ""
     links = page["links"][:MAX_LINKS]
     links_text = "\n".join(f"- {link['text']} | {link['url']}" for link in links)

@@ -41,22 +41,18 @@ def main():
         return
 
     details = collect_details(result, log=log)
-    print(f"\ndetails: {len(details.details)} extracted, {len(details.refused_pages)} pages refused, "
-          f"{len(details.failed_extractions)} extractions failed, {len(details.skipped)} offers not opened")
+    print(f"\ndetails: {len(details.details)} pages answered, {len(details.refused_pages)} pages refused, "
+          f"{len(details.failed_extractions)} criteria calls failed, {len(details.skipped)} offers not opened")
     print("models: " + (", ".join(f"{n} {c}" for n, c in details.model_calls.items()) or "no LLM call"))
     for skipped in details.skipped:
         print(f"  not opened: {skipped.title[:60]!r} {skipped.reason}")
     for page in details.refused_pages:
         print(f"  refused: {page.key} {page.failure} ({page.detail})")
-    for d in details.details:
-        languages = ", ".join(f"{n['language']} {n['level']}" for n in d.languages) or "-"
-        print(f"  {d.key}: {d.city}, {d.country}; {d.seniority}; {d.contract}"
-              f"{' (doubtful)' if d.contract_doubtful else ''}, {d.workload or '-'}; "
-              f"experience {d.experience_years or '-'} {d.experience_requirement}; languages {languages}; "
-              f"education {d.education}; salary {d.salary or '-'}; posted {d.posted or '-'}; "
-              f"{len(d.requirements)} requirements ({d.dropped_requirements} dropped)"
-              + (f"; not supported by the page: {', '.join(d.unchecked)}" if d.unchecked else ""))
-
+    for detail in details.details:
+        answers = detail.asked.criteria_answers or []
+        yes = [f"{a.id} {a.quote[:60]!r}" for a in answers if a.answer == "yes"]
+        print(f"  {detail.key}: {detail.asked.criteria_model or '-'}, whole ad: {detail.asked.full_ad}; "
+              f"yes: {'; '.join(yes) or 'none'}")
 
 if __name__ == "__main__":
     main()

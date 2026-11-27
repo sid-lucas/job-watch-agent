@@ -6,14 +6,13 @@ except ModuleNotFoundError:
     raise SystemExit("Missing user_config.py: copy user_config.example.py to user_config.py and edit it.")
 
 from user_config import (
-    MIN_SCORE, MAX_DISPLAY, MIN_VERIFY_SCORE, MAX_VERIFY_PER_RUN,
-    TOP_COMPANIES, GOOD_COMPANIES, COMPANY_ALIASES, COMPANY_DOMAINS, COMPANY_CONTEXT,
-    PROFILE, CRITERIA, CODE_CRITERIA, KEPT_DOMAINS, RSS_FEEDS,
+    MIN_SCORE, MAX_DISPLAY,
+    COMPANIES, PROFILE, CRITERIA, CODE_CRITERIA, KEPT_DOMAINS, RSS_FEEDS,
 )
 from job_watch.offers.criteria import load_settings
 
 # Criteria of the user, validated at startup (a problem stops the program with a clear message)
-SETTINGS = load_settings(PROFILE, CRITERIA, CODE_CRITERIA, KEPT_DOMAINS, RSS_FEEDS)
+SETTINGS = load_settings(PROFILE, CRITERIA, CODE_CRITERIA, KEPT_DOMAINS, RSS_FEEDS, COMPANIES)
 
 # Paths
 BASE_DIR = Path(__file__).parent.parent

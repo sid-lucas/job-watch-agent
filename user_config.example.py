@@ -4,22 +4,17 @@
 MIN_SCORE = 20
 MAX_DISPLAY = 10
 
-# Verification
-MIN_VERIFY_SCORE = 30
-MAX_VERIFY_PER_RUN = 10
-
-# Target companies, in two tiers
-TOP_COMPANIES = ["Example Bank", "Example Security Company"]
-GOOD_COMPANIES = ["Example Consulting"]
-
-# Domains owned by a company when its name does not appear in them (canonical name -> domains)
-COMPANY_DOMAINS = {}
-
-# Alternative names of the same company (canonical name -> aliases), searched only once
-COMPANY_ALIASES = {}
-
-# Short description of a company, for names shared with other organisations (used by the page judge)
-COMPANY_CONTEXT = {}
+# Target companies: their career sites are searched and read (registry). For each one, all optional:
+#   "tier": a name used by the "company_tier" code criteria below (e.g. "top", "good");
+#   "aliases": other names of the same company (searched once, matched as the company);
+#   "domains": its domains that do not carry its name (e.g. "ge.ch" for the State of Geneva);
+#   "context": a few words for the page judge, when the name is shared with other organisations.
+COMPANIES = {
+    "Example Bank": {"tier": "top", "aliases": ["Example Bank SA"]},
+    "Example Security Company": {"tier": "top"},
+    "Example Consulting": {"tier": "good", "domains": ["exco.ch"]},
+    "Example Group": {"context": "Swiss holding of watch brands"},
+}
 
 # Domains of the triage kept (the others are set aside before any page is opened). Known domains:
 # "Technology/IT", "Engineering & R&D (non-IT)", "Finance, banking & accounting",
@@ -58,10 +53,11 @@ CRITERIA = [
     {"ask": "Is it an internship?", "points": -10, "label": "internship"},
 ]
 
-# Criteria checked by code, without any LLM: "company_in" (whole names, case-insensitive) and
-# "posted_older_than_days". Same "reject" / "points" / "group" keys as CRITERIA.
+# Criteria checked by code, without any LLM: "company_tier" (the company, or one of its aliases, is a
+# COMPANIES entry of that tier; whole names, case-insensitive) and "posted_older_than_days".
+# Same "reject" / "points" / "group" keys as CRITERIA.
 CODE_CRITERIA = [
-    {"type": "company_in", "names": TOP_COMPANIES, "points": 20, "group": "company"},
-    {"type": "company_in", "names": GOOD_COMPANIES, "points": 10, "group": "company"},
+    {"type": "company_tier", "tier": "top", "points": 20, "group": "company"},
+    {"type": "company_tier", "tier": "good", "points": 10, "group": "company"},
     {"type": "posted_older_than_days", "days": 30, "points": -5},
 ]

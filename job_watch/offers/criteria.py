@@ -2,7 +2,7 @@
 
     {"ask": "Is the job located outside Switzerland?", "reject": True}
     {"ask": "Is the job in Geneva?", "points": 15, "group": "location"}
-    {"type": "company_in", "names": [...], "points": 20, "group": "company"}
+    {"type": "company_tier", "tier": "top", "points": 20, "group": "company"}
 
 Each criterion either rejects the offer ("reject": True) or gives points ("points": N). Criteria
 sharing a "group" are exclusive: only the best "yes" of the group counts. "absence": True marks a
@@ -89,10 +89,10 @@ class Criterion(_Effect):
         return self
 
 
-class CompanyIn(_Effect):
-    """The company of the offer is one of these names (whole names, case-insensitive)."""
-    type: Literal["company_in"]
-    names: list[Annotated[str, Field(min_length=1)]] = Field(min_length=1)
+class CompanyTier(_Effect):
+    """The company of the offer is one of the COMPANIES of this tier (name or alias, whole names)."""
+    type: Literal["company_tier"]
+    tier: str = Field(min_length=1)
 
 
 class PostedOlderThan(_Effect):
@@ -101,7 +101,19 @@ class PostedOlderThan(_Effect):
     days: int = Field(gt=0)
 
 
-CodeCriterion = Annotated[CompanyIn | PostedOlderThan, Field(discriminator="type")]
+CodeCriterion = Annotated[CompanyTier | PostedOlderThan, Field(discriminator="type")]
+CODE_TYPES = ("company_tier", "posted_older_than_days")
+
+_DOMAIN = r"^[a-z0-9-]+(\.[a-z0-9-]+)+$"
+
+
+class Company(BaseModel):
+    """One company of COMPANIES: a target whose career site is searched and read (registry)."""
+    model_config = ConfigDict(extra="forbid", str_strip_whitespace=True)
+    tier: str | None = Field(default=None, min_length=1)    # used by "company_tier" code criteria
+    aliases: list[Annotated[str, Field(min_length=1)]] = []  # other names of the same company, searched once
+    domains: list[Annotated[str, Field(pattern=_DOMAIN)]] = []  # its domains that do not carry its name
+    context: str = ""                                       # a few words for the page judge (shared names)
 
 
 class RssFeed(BaseModel):
@@ -121,6 +133,36 @@ class Settings(BaseModel):
     code_criteria: list[CodeCriterion] = []
     kept_domains: list[str] = Field(min_length=1)
     rss_feeds: list[RssFeed] = []
+    companies: dict[Annotated[str, Field(min_length=1)], Company] = {}
+
+    def company(self, name: str) -> Company:
+        """Settings of a company by its name (empty when it is not in COMPANIES)."""
+        return self.companies.get(name) or Company()
+
+    def tier_names(self, tier: str) -> list[str]:
+        """Names and aliases of the companies of a tier."""
+        return [n for name, c in self.companies.items() if c.tier == tier for n in (name, *c.aliases)]
+
+    @field_validator("companies")
+    @classmethod
+    def one_name_per_company(cls, companies: dict[str, Company]) -> dict[str, Company]:
+        seen: dict[str, str] = {}
+        for name, company in companies.items():
+            for other in (name, *company.aliases):
+                key = other.strip().casefold()
+                if key in seen and seen[key] != name:
+                    raise ValueError(f"{other!r} names two companies: {seen[key]!r} and {name!r}")
+                seen[key] = name
+        return companies
+
+    @model_validator(mode="after")
+    def tiers_exist(self):
+        tiers = {c.tier for c in self.companies.values() if c.tier}
+        for criterion in self.code_criteria:
+            if isinstance(criterion, CompanyTier) and criterion.tier not in tiers:
+                raise ValueError(f'CODE_CRITERIA: no company of COMPANIES has the tier {criterion.tier!r} '
+                                 f'(tiers: {", ".join(sorted(tiers)) or "none"})')
+        return self
 
     @field_validator("rss_feeds")
     @classmethod
@@ -156,7 +198,7 @@ class Settings(BaseModel):
 
 
 _NAMES = {"profile": "PROFILE", "criteria": "CRITERIA", "code_criteria": "CODE_CRITERIA", "kept_domains": "KEPT_DOMAINS",
-          "rss_feeds": "RSS_FEEDS"}
+          "rss_feeds": "RSS_FEEDS", "companies": "COMPANIES"}
 
 
 def _where(location: tuple, raw: dict) -> str:
@@ -164,6 +206,8 @@ def _where(location: tuple, raw: dict) -> str:
     if not location:
         return "user_config.py"
     name = _NAMES.get(location[0], str(location[0]))
+    if location[0] == "companies" and len(location) >= 2:
+        return f"{name}[{location[1]!r}]"
     if len(location) < 2 or not isinstance(location[1], int):
         return name
     index = location[1]
@@ -175,10 +219,11 @@ def _where(location: tuple, raw: dict) -> str:
     return f"{name}[{index}]" + (f" ({str(label)[:60]!r})" if label else "")
 
 
-def load_settings(profile, criteria, code_criteria, kept_domains, rss_feeds=()) -> Settings:
+def load_settings(profile, criteria, code_criteria, kept_domains, rss_feeds=(), companies=None) -> Settings:
     """Validate the settings; raise SystemExit with one clear line per problem."""
     raw = {"profile": profile, "criteria": criteria, "code_criteria": code_criteria, "kept_domains": kept_domains,
-           "rss_feeds": list(rss_feeds) if isinstance(rss_feeds, (list, tuple)) else rss_feeds}
+           "rss_feeds": list(rss_feeds) if isinstance(rss_feeds, (list, tuple)) else rss_feeds,
+           "companies": {} if companies is None else companies}
     try:
         return TypeAdapter(Settings).validate_python(raw)
     except ValidationError as error:
@@ -186,7 +231,7 @@ def load_settings(profile, criteria, code_criteria, kept_domains, rss_feeds=()) 
         for problem in error.errors():
             location = problem["loc"]
             # The union of code criteria adds the "type" tag to the location: not useful to the user
-            field = [str(part) for part in location[2:] if part not in ("company_in", "posted_older_than_days")]
+            field = [str(part) for part in location[2:] if part not in CODE_TYPES]
             message = problem["msg"].removeprefix("Value error, ")
             kind = problem["type"]
             if kind == "extra_forbidden":
@@ -194,7 +239,7 @@ def load_settings(profile, criteria, code_criteria, kept_domains, rss_feeds=()) 
             elif kind == "missing":
                 message = "missing key"
             elif kind in ("union_tag_invalid", "union_tag_not_found"):
-                message = 'missing or unknown "type" (known: company_in, posted_older_than_days)'
+                message = f'missing or unknown "type" (known: {", ".join(CODE_TYPES)})'
             lines.append(f"- {_where(location, raw)}{' ' + '.'.join(field) if field else ''}: {message}")
         raise SystemExit("Invalid user_config.py:\n" + "\n".join(lines)) from None
 
@@ -290,9 +335,9 @@ class _Match(BaseModel):
 def _code_matches(settings: Settings, company: str, posted: date | None, today: date) -> list[_Match]:
     matches = []
     for criterion in settings.code_criteria:
-        if isinstance(criterion, CompanyIn):
-            name = names_in(company, criterion.names)
-            label, evidence = "company in list", name
+        if isinstance(criterion, CompanyTier):
+            name = names_in(company, settings.tier_names(criterion.tier))
+            label, evidence = f"{criterion.tier} company", name
         else:
             older = posted is not None and (today - posted).days > criterion.days
             label = f"posted over {criterion.days} days ago"

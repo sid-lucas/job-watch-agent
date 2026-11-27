@@ -49,7 +49,7 @@ def check_known_list(company: str, url: str, registry: dict, today: date | None 
         return AddResult(added=False, reason=f"the page judge cannot confirm the owner ({answer.owner_matches}): "
                                              f"{answer.reason}")
     entry = {
-        "aliases": config.COMPANY_ALIASES.get(company, []),
+        "aliases": config.SETTINGS.company(company).aliases,
         "status": "ok",
         "jobs_url": page["url"],
         "platform": detect_platform(page["url"]),
