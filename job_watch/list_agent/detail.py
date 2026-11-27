@@ -13,7 +13,7 @@ from typing import Literal
 from pydantic import BaseModel
 
 from job_watch import config
-from job_watch.list_agent.extraction import CheckedOffer, find_in
+from job_watch.list_agent.extraction import CheckedOffer, find_in, without_badge
 from job_watch.web.click_rules import site_domain
 from job_watch.web.session import BrowserSession, SessionError
 
@@ -93,7 +93,8 @@ def open_detail(offer: CheckedOffer, list_url: str, **session_options) -> Detail
         return DetailPage(key=offer.key, url=obs.url, text="", truncated=False, failure="redirected",
                           detail=f"now on {site_domain(obs.url)}")
     text = obs.new_text_full        # first observation: every line of the page, never cut
-    if find_in(text, offer.title) is None:
+    # The title with a label at its end (offers stored before the labels were left out) is accepted too
+    if find_in(text, offer.title) is None and find_in(text, without_badge(offer.title)) is None:
         return DetailPage(key=offer.key, url=obs.url, text="", truncated=False, failure="title_not_found",
                           detail=f"{offer.title[:80]!r} not in the page")
     return DetailPage(key=offer.key, url=obs.url, text=text[:config.DETAIL_MAX_CHARS],

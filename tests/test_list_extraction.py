@@ -1,5 +1,7 @@
 """Offer extraction from agent observations: pure functions, no LLM, no browser."""
-from job_watch.list_agent.extraction import chunks
+import pytest
+
+from job_watch.list_agent.extraction import ChunkOffer, ChunkOffers, check_offers, chunks
 
 
 def offer_lines(count: int) -> str:
@@ -161,3 +163,28 @@ def test_offer_links_on_another_subdomain_of_the_list_domain_are_kept():
                            "https://careers.smartrecruiters.com/SCRT")
     assert [(o.title, bool(o.link), o.verified) for o in checked] == [
         ("Security Engineer", True, True), ("Data Analyst", False, False)]
+
+
+@pytest.mark.parametrize("title, expected", [
+    ("Product Engineer (Linux)New", "Product Engineer (Linux)"),
+    ("Mobile Product EngineerNew", "Mobile Product Engineer"),
+    ("Site Reliability Engineer - VPN New", "Site Reliability Engineer - VPN"),
+    ("Data Analyst HOT", "Data Analyst"),
+    ("Cloud Engineer | Urgent!", "Cloud Engineer"),
+    ("Développeur Java Nouveau", "Développeur Java"),
+    ("Security Analyst New Hot", "Security Analyst"),
+    ("Renew Energy Analyst", "Renew Energy Analyst"),          # a word that ends with "new"
+    ("Junior Developer", "Junior Developer"),
+    ("New", "New"),                                             # nothing left: kept as is
+])
+def test_labels_at_the_end_of_a_title_are_left_out(title, expected):
+    from job_watch.list_agent.extraction import without_badge
+    assert without_badge(title) == expected
+
+
+def test_a_title_copied_with_its_label_is_checked_and_kept_without_it():
+    answer = ChunkOffers(offers=[ChunkOffer(title="Product Engineer (Linux)New", location="Geneva", link="",
+                                            reference="")])
+    checked = check_offers("Product Engineer (Linux)New\nGeneva", answer, [], "https://jobs.example.com/list")
+    assert [o.title for o in checked] == ["Product Engineer (Linux)"]
+
