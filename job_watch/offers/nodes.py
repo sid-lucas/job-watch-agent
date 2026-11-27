@@ -58,38 +58,39 @@ def wants(state: JobState, source: str) -> bool:
 
 
 def fetch_rss(state: JobState) -> dict:
-    """Node: read the RSS feed and convert each entry to an Offer."""
+    """Node: read the RSS feeds of user_config.py and convert each entry to an Offer (source: the feed name)."""
     if not wants(state, "rss"):
         print("fetch_rss: skipped")
         return {"offers": state.get("offers", [])}
-    feed = feedparser.parse(config.FEED_URL)
     fetched = datetime.now(timezone.utc).isoformat()
-
     offers: list[Offer] = []
-    for entry in feed.entries:
-        position, company = parse_title(entry.title)
-        link = clean_link(entry.link)
-        offers.append(Offer(
-            key=storage.rss_key(link),
-            title=position,
-            company=company,
-            location="unknown", # TODO: CHANGE, the RSS feed has no location
-            description=without_board_salary(html_to_text(entry.get("description", ""))),
-            source=config.SOURCE_NAME,
-            link=link,
-            published=to_iso(entry.get("published", "")),
-            fetched=fetched,
-        ))
-
-    print(f"fetch_rss: {len(offers)} offers")
+    for feed in config.SETTINGS.rss_feeds:
+        entries = feedparser.parse(feed.url).entries
+        for entry in entries:
+            position, company = parse_title(entry.title)
+            link = clean_link(entry.link)
+            offers.append(Offer(
+                key=storage.rss_key(link),
+                title=position,
+                company=company,
+                location="unknown",     # the feed gives no location
+                description=without_board_salary(html_to_text(entry.get("description", ""))),
+                source=feed.name,
+                link=link,
+                published=to_iso(entry.get("published", "")),
+                fetched=fetched,
+            ))
+        print(f"fetch_rss: {feed.name}: {len(entries)} offers")
     return {"offers": state.get("offers", []) + offers}
 
 
 def triage_rss(state: JobState) -> dict:
-    """Node: triage of the new RSS offers (title, company; the feed gives no location), as for career sites."""
+    """Node: triage of the new offers of the feeds whose "triage" flag is set (title, company; the feed
+    gives no location), as for career sites. The offers of the other feeds keep no domain: kept."""
     offers = [dict(o) for o in state.get("offers", [])]
     known = storage.known_offers()
-    todo = [o for o in offers if o["source"] != "career_site" and (o["company"], o["key"]) not in known]
+    triaged_feeds = {feed.name for feed in config.SETTINGS.rss_feeds if feed.triage}
+    todo = [o for o in offers if o["source"] in triaged_feeds and (o["company"], o["key"]) not in known]
     if not todo:
         return {"offers": offers}
     verdicts = triage_offers([TriageInput(title=o["title"], location=o["location"], company=o["company"])

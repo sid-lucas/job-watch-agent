@@ -14,7 +14,7 @@ pip install -r requirements.txt
 playwright install chromium
 ```
 
-Personal settings (target companies, aliases, company domains, profile, criteria, kept triage domains):
+Personal settings (target companies, aliases, company domains, profile, criteria, kept triage domains, RSS feeds):
 
 ```bash
 cp user_config.example.py user_config.py

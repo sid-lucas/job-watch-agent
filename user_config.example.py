@@ -28,6 +28,13 @@ COMPANY_CONTEXT = {}
 # Keep "Other" (the title gives no clue): an offer is never set aside on what is not known.
 KEPT_DOMAINS = ["Technology/IT", "Other"]
 
+# RSS feeds of job offers. "triage": the domain triage runs on their new offers (one cheap LLM call per
+# batch); False for a feed that only lists jobs of the kept domains (an IT job board): the criteria decide.
+# The feed format read is the one of swissdevjobs.ch ("Position @ Company [Salary]" titles).
+RSS_FEEDS = [
+    {"name": "swissdevjobs", "url": "https://swissdevjobs.ch/rss", "triage": False},
+]
+
 # Short text about you, given to the LLM as context when it answers the criteria. It is sent to
 # cloud models: keep it short and never put personal documents (CV, letters) in it.
 PROFILE = "Recent graduate in computer science, looking for an entry-level IT job."

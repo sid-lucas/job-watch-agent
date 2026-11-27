@@ -32,7 +32,7 @@ def test_valid_settings_are_loaded():
 def test_the_example_config_is_valid():
     example = runpy.run_path(str(config.BASE_DIR / "user_config.example.py"))
     assert load_settings(example["PROFILE"], example["CRITERIA"], example["CODE_CRITERIA"],
-                         example["KEPT_DOMAINS"]).criteria
+                         example["KEPT_DOMAINS"], example["RSS_FEEDS"]).rss_feeds
 
 
 @pytest.mark.parametrize("criterion, expected", [

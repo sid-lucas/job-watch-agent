@@ -4,9 +4,13 @@ from job_watch.offers.ask_criteria import answer_schema
 from job_watch.offers.criteria import Settings, load_settings
 
 
+TEST_FEEDS = [{"name": "swissdevjobs", "url": "https://rss.example/feed", "triage": True}]
+
+
 def criteria_settings(criteria: list[dict], code_criteria: list[dict] | None = None,
-                      kept_domains: list[str] | None = None) -> Settings:
-    return load_settings("Test profile.", criteria, code_criteria or [], kept_domains or ["Technology/IT", "Other"])
+                      kept_domains: list[str] | None = None, rss_feeds: list[dict] | None = None) -> Settings:
+    return load_settings("Test profile.", criteria, code_criteria or [], kept_domains or ["Technology/IT", "Other"],
+                         TEST_FEEDS if rss_feeds is None else rss_feeds)
 
 
 class FakeCriteriaModel:

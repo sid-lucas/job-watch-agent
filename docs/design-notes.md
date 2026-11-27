@@ -5,7 +5,7 @@ How things work and why they were built this way. Unordered notes, updated along
 ## Configuration
 
 - `job_watch/config.py`: technical settings (paths, models, web access), committed.
-- `user_config.py`: personal settings (companies, aliases, company domains, profile, criteria, kept triage domains), not committed. Each user has their own; `user_config.example.py` is the template.
+- `user_config.py`: personal settings (companies, aliases, company domains, profile, criteria, kept triage domains, RSS feeds with a domain-triage flag each), not committed. Each user has their own; `user_config.example.py` is the template.
 - `config.py` re-exports the personal settings, so the rest of the code only imports `config`. A missing `user_config.py` stops the program with a clear message; a missing variable raises an import error naming it. `PROFILE`, `CRITERIA`, `CODE_CRITERIA` and `KEPT_DOMAINS` are validated at import (`offers/criteria.py`, Pydantic): missing "ask", both "reject" and "points", "group" or "absence" on a reject criterion, a "label" over 50 characters, unknown key or code criterion type, the same question twice, an unknown triage domain; each problem is one line naming the criterion.
 
 ## Project layout
@@ -135,7 +135,7 @@ Known limitations:
 - The forbidden-action words cover four languages; other languages rely on the other guardrails (forms, navigation interception).
 - On a shared applicant tracking system domain, an offer link to another company on the same domain is accepted; the detail page must still contain the offer title.
 - A listed offer that a changed criterion keeps again has no detail (it was set aside before the detail phase): rescore reports it, it is not fetched.
-- The publication date of career-site offers is not read yet (only the RSS feed gives one), so "posted over N days ago" applies to RSS offers only.
+- Publication date of career-site offers: read by the code from the first relative date of the page ("Posted 3 Days Ago", "il y a 3 jours", "vor 3 Tagen", today / yesterday; `offers/dates.py`), counted back from the day the page was read. An absolute date on the page is not read, and an open bound ("30+ Days Ago") gives no date: the offer then gets no "posted over N days ago" penalty. When the page shows other offers above the offer's own date, their date is taken.
 
 ## LLM usage
 

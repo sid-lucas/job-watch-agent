@@ -104,6 +104,15 @@ class PostedOlderThan(_Effect):
 CodeCriterion = Annotated[CompanyIn | PostedOlderThan, Field(discriminator="type")]
 
 
+class RssFeed(BaseModel):
+    """One RSS feed of job offers. triage: the domain triage runs on its new offers (False for a feed
+    that only lists jobs of the kept domains, e.g. an IT job board: the criteria decide alone)."""
+    model_config = ConfigDict(extra="forbid", str_strip_whitespace=True)
+    name: str = Field(min_length=1)         # stored as the source of its offers
+    url: str = Field(pattern=r"^https?://\S+$")
+    triage: bool
+
+
 class Settings(BaseModel):
     """PROFILE, CRITERIA, CODE_CRITERIA and KEPT_DOMAINS of user_config.py, validated together."""
     model_config = ConfigDict(extra="forbid", str_strip_whitespace=True)
@@ -111,6 +120,17 @@ class Settings(BaseModel):
     criteria: list[Criterion] = Field(min_length=1)
     code_criteria: list[CodeCriterion] = []
     kept_domains: list[str] = Field(min_length=1)
+    rss_feeds: list[RssFeed] = []
+
+    @field_validator("rss_feeds")
+    @classmethod
+    def distinct_feed_names(cls, feeds: list[RssFeed]) -> list[RssFeed]:
+        names = [f.name.casefold() for f in feeds]
+        if len(set(names)) != len(names):
+            raise ValueError("two feeds have the same name")
+        if "career_site" in names:
+            raise ValueError('"career_site" is the source name of career-site offers')
+        return feeds
 
     @field_validator("kept_domains")
     @classmethod
@@ -135,7 +155,8 @@ class Settings(BaseModel):
         return criteria
 
 
-_NAMES = {"profile": "PROFILE", "criteria": "CRITERIA", "code_criteria": "CODE_CRITERIA", "kept_domains": "KEPT_DOMAINS"}
+_NAMES = {"profile": "PROFILE", "criteria": "CRITERIA", "code_criteria": "CODE_CRITERIA", "kept_domains": "KEPT_DOMAINS",
+          "rss_feeds": "RSS_FEEDS"}
 
 
 def _where(location: tuple, raw: dict) -> str:
@@ -150,13 +171,14 @@ def _where(location: tuple, raw: dict) -> str:
         item = raw[location[0]][index]
     except (IndexError, KeyError, TypeError):
         item = None
-    label = item.get("ask") or item.get("type") if isinstance(item, dict) else None
+    label = item.get("ask") or item.get("type") or item.get("name") if isinstance(item, dict) else None
     return f"{name}[{index}]" + (f" ({str(label)[:60]!r})" if label else "")
 
 
-def load_settings(profile, criteria, code_criteria, kept_domains) -> Settings:
+def load_settings(profile, criteria, code_criteria, kept_domains, rss_feeds=()) -> Settings:
     """Validate the settings; raise SystemExit with one clear line per problem."""
-    raw = {"profile": profile, "criteria": criteria, "code_criteria": code_criteria, "kept_domains": kept_domains}
+    raw = {"profile": profile, "criteria": criteria, "code_criteria": code_criteria, "kept_domains": kept_domains,
+           "rss_feeds": list(rss_feeds) if isinstance(rss_feeds, (list, tuple)) else rss_feeds}
     try:
         return TypeAdapter(Settings).validate_python(raw)
     except ValidationError as error:

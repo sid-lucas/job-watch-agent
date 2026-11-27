@@ -8,12 +8,12 @@ except ModuleNotFoundError:
 from user_config import (
     MIN_SCORE, MAX_DISPLAY, MIN_VERIFY_SCORE, MAX_VERIFY_PER_RUN,
     TOP_COMPANIES, GOOD_COMPANIES, COMPANY_ALIASES, COMPANY_DOMAINS, COMPANY_CONTEXT,
-    PROFILE, CRITERIA, CODE_CRITERIA, KEPT_DOMAINS,
+    PROFILE, CRITERIA, CODE_CRITERIA, KEPT_DOMAINS, RSS_FEEDS,
 )
 from job_watch.offers.criteria import load_settings
 
 # Criteria of the user, validated at startup (a problem stops the program with a clear message)
-SETTINGS = load_settings(PROFILE, CRITERIA, CODE_CRITERIA, KEPT_DOMAINS)
+SETTINGS = load_settings(PROFILE, CRITERIA, CODE_CRITERIA, KEPT_DOMAINS, RSS_FEEDS)
 
 # Paths
 BASE_DIR = Path(__file__).parent.parent
@@ -43,10 +43,6 @@ LOCAL_ONLY_MAX_CRITERIA = 5
 TRIAGE_BATCH_SIZE = {"gemini": 25, "mistral": 25, "ollama": 10, "default": 10}
 OLLAMA_THINK = False     # qwen3 reasoning ("thinking"): slower; off by default
 OLLAMA_NUM_CTX = 24576   # context size in tokens; fits a 30000-character page in 11 GB of VRAM
-
-# RSS source
-FEED_URL = "https://swissdevjobs.ch/rss"
-SOURCE_NAME = "swissdevjobs"
 
 # Web access
 USER_AGENT = "job-watch/0.1 (personal job search project)"
