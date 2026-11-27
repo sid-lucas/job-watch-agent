@@ -68,11 +68,15 @@ def needs_check(entry: dict) -> bool:
     return rule_url_to_check or candidates_to_check
 
 
-def check_entry(company: str, entry: dict) -> tuple[str, str | None, list[dict], bool, bool]:
-    """Return (outcome, url, trail, from_candidates, temporary_failure)."""
-    previous = {step["url"] for step in entry.get("verified", {}).get("trail", [])}
+def check_entry(company: str, entry: dict, force: bool = False) -> tuple[str, str | None, list[dict], bool, bool]:
+    """Return (outcome, url, trail, from_candidates, temporary_failure).
+
+    force: judge the entry again even if it was verified (a wrong owner found later, a new
+    "context" in COMPANIES): its current job list first, then its candidates, earlier verdicts ignored.
+    """
+    previous = set() if force else {step["url"] for step in entry.get("verified", {}).get("trail", [])}
     urls = []
-    if entry["status"] == "ok" and "verified" not in entry and entry["jobs_url"]:
+    if (force or (entry["status"] == "ok" and "verified" not in entry)) and entry["jobs_url"]:
         urls.append(entry["jobs_url"])
     candidates = ranked_candidates(company, entry, exclude=previous | set(urls))
     urls += candidates

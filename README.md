@@ -78,6 +78,7 @@ Career sites registry, in order:
 python -m scripts.build_registry       # search the career sites of new target companies (Serper credits)
 python -m scripts.resolve_registry     # propose a job list URL for each company (rules + headless browser)
 python -m scripts.verify_registry      # confirm the job lists with the LLM page judge (Gemini calls)
+python -m scripts.verify_registry --company "NAME"   # judge one entry again, even if verified (no Serper)
 python -m scripts.show_registry        # overview of the registry (read only)
 python -m scripts.add_registry_entry "COMPANY" URL   # add a known job list (robots.txt + page judge, no Serper)
 ```
@@ -85,7 +86,7 @@ python -m scripts.add_registry_entry "COMPANY" URL   # add a known job list (rob
 `python -m evals.check_page_judge` runs the judge on pages verified by hand.
 
 Target companies (`COMPANIES`: tier, aliases, domains, context), your profile and your criteria (`PROFILE`, `CRITERIA`, `CODE_CRITERIA`) are set in `user_config.py`; see `user_config.example.py`. They are checked at startup: a problem stops the program with a message naming the criterion.
-`python -m scripts.rescore [--db PATH] [--dry-run]` applies changed settings to the stored answers, without any LLM call; `--ask` asks again the offers whose questions changed, `--open-details` opens the pages of listed offers kept again later (`--dry-run` counts pages and calls first).
+`python -m scripts.rescore [--db PATH] [--dry-run]` applies changed settings to the stored answers, without any LLM call; `--ask` asks again the offers whose questions changed (with `--reask-unrecorded`, also those whose answering model was not recorded), `--open-details` opens the pages of listed offers kept again later (`--dry-run` counts pages and calls first).
 
 ## Ideas
 

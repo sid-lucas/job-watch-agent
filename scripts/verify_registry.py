@@ -12,19 +12,23 @@ checked against robots.txt first. Outcomes:
 - retry: a page failed to load or an API was unavailable; retried in a second pass at the end,
   then saved as not_found if it fails again, the cause being kept in the trail
 Entries are marked "candidates_judged" once their candidates have been judged.
+
+    python -m scripts.verify_registry                       # entries not validated yet
+    python -m scripts.verify_registry --company "Bordier"   # one entry again, even if verified (no Serper)
 """
+import argparse
 from datetime import date
 
 from job_watch.registry.store import load_registry, save_registry
 from job_watch.registry.verify import MAX_CANDIDATES, MAX_HOPS, check_entry, needs_check
 
 
-def run(registry: dict, companies: list[str], last_pass: bool) -> list[str]:
+def run(registry: dict, companies: list[str], last_pass: bool, force: bool = False) -> list[str]:
     """Check the given companies and return those to retry."""
     to_retry = []
     for company in companies:
         entry = registry[company]
-        outcome, url, trail, from_candidates, temporary_failure = check_entry(company, entry)
+        outcome, url, trail, from_candidates, temporary_failure = check_entry(company, entry, force=force)
 
         if outcome == "not_found" and temporary_failure and not last_pass:
             print(f"RETRY     {company:26} {trail[-1]['reason']}, retried at the end")
@@ -49,7 +53,18 @@ def run(registry: dict, companies: list[str], last_pass: bool) -> list[str]:
 
 
 def main():
+    parser = argparse.ArgumentParser()
+    parser.add_argument("--company", help="judge this entry again, even if it was verified")
+    args = parser.parse_args()
     registry = load_registry()
+    if args.company:
+        name = next((c for c in registry if c.casefold() == args.company.casefold()), None)
+        if name is None:
+            raise SystemExit(f"{args.company!r} is not in the registry")
+        print(f"{name}: {registry[name].get('jobs_url')} judged again, then up to {MAX_CANDIDATES} candidates "
+              f"(1 to {(MAX_CANDIDATES + 1) * (MAX_HOPS + 1)} LLM calls, no Serper).")
+        run(registry, [name], last_pass=True, force=True)
+        return
     todo = [c for c, e in registry.items() if needs_check(e)]
 
     print(f"{len(todo)} entries to check (1 to {(MAX_CANDIDATES + 1) * (MAX_HOPS + 1)} LLM calls each).")
