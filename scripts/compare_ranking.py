@@ -1,6 +1,6 @@
 """Score stored offers with the criteria of user_config.py and compare with their stored score (read only).
 
-One LLM call per offer (DETAIL_CHAIN); nothing is written to the database. The raw answers of the
+One LLM call per offer (config.MODEL_CHAIN); nothing is written to the database. The raw answers of the
 LLM are saved after each offer (data/criteria_answers.jsonl by default, next to the database, out of
 the repository: one JSON line per offer, appended; a later line for the same offer wins) and reused
 on the next run while the questions are the same: they are checked again by the code each time. A run stopped halfway resumes, and a change of points, groups, code

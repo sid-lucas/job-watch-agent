@@ -55,6 +55,8 @@ def mistral_error(error_type, status: int, body: str, headers: dict | None = Non
      ("per_minute", 2.0)),
     (mistral_error(MistralAIRateLimitError, 429, '{"message":"Too many requests"}'), ("unknown_quota", None)),
     (mistral_error(MistralAIAuthenticationError, 401, '{"message":"Unauthorized"}'), ("auth", None)),
+    (mistral_error(httpx.HTTPStatusError, 402, '{"message":"Payment Required"}'), ("auth", None)),  # no free tier
+    (RuntimeError("Error response 402 while fetching https://api.example/v1/chat"), ("auth", None)),
     (TimeoutError("read timed out"), ("other", None)),
 ])
 def test_classify_failure(error, expected):
@@ -134,8 +136,8 @@ def test_other_errors_do_not_skip_the_model(policy):
 
 @pytest.mark.allow_llm_client
 def test_mistral_is_left_out_without_its_key(monkeypatch):
-    monkeypatch.setattr(llm.config, "DETAIL_CHAIN", [("gemini", "g"), ("mistral", "mistral-small-latest"),
-                                                     ("ollama", "q")])
+    monkeypatch.setattr(llm.config, "MODEL_CHAIN", [("gemini", "g", True), ("mistral", "mistral-small-latest", True),
+                                                    ("ollama", "q", True)])
     monkeypatch.delenv("LLM_ONLY", raising=False)
     monkeypatch.delenv("MISTRAL_API_KEY", raising=False)
     assert [p for p, _ in llm.llm_chain()] == ["gemini", "ollama"]
@@ -145,13 +147,28 @@ def test_mistral_is_left_out_without_its_key(monkeypatch):
     assert type(client).__name__ == "ChatMistralAI" and client.model == "mistral-small-latest"
 
 
-def test_each_task_has_its_chain(monkeypatch):
+def test_one_chain_in_order_without_disabled_models(monkeypatch):
     monkeypatch.delenv("LLM_ONLY", raising=False)
-    monkeypatch.setattr(llm.config, "TRIAGE_CHAIN", [("ollama", "q"), ("gemini", "g")])
-    monkeypatch.setattr(llm.config, "DETAIL_CHAIN", [("gemini", "g"), ("ollama", "q")])
-    monkeypatch.setattr(llm.config, "NAVIGATION_CHAIN", [("gemini", "n")])
-    assert llm.llm_chain("triage") == [("ollama", "q"), ("gemini", "g")]
-    assert llm.llm_chain() == llm.llm_chain("detail") == [("gemini", "g"), ("ollama", "q")]
-    assert llm.llm_chain("navigation") == [("gemini", "n")]
+    monkeypatch.setattr(llm.config, "MODEL_CHAIN", [("gemini", "a", True), ("gemini", "gemma", False),
+                                                    ("gemini", "b", True), ("ollama", "q", True)])
+    assert llm.llm_chain() == [("gemini", "a"), ("gemini", "b"), ("ollama", "q")]
     monkeypatch.setenv("LLM_ONLY", "ollama")
-    assert llm.llm_chain("triage") == [("ollama", "q")]
+    assert llm.llm_chain() == [("ollama", "q")]
+
+
+def test_the_default_chain_holds_no_paid_or_unchecked_model():
+    from job_watch import config
+    enabled = {f"{p}:{m}" for p, m, on in config.MODEL_CHAIN if on}
+    assert "mistral:mistral-small-latest" not in enabled and "gemini:gemma-4-31b-it" not in enabled
+    assert not any("2.5" in name for name in enabled)                       # end of life
+    assert config.MODEL_CHAIN[-1][0] in config.LOCAL_PROVIDERS               # local model last
+
+
+def test_only_local_left_once_every_cloud_model_is_skipped(monkeypatch):
+    monkeypatch.delenv("LLM_ONLY", raising=False)
+    monkeypatch.setattr(llm.config, "MODEL_CHAIN", [("gemini", "a", True), ("gemini", "off", False),
+                                                    ("ollama", "q", True)])
+    monkeypatch.setattr(llm, "_unavailable", {})
+    assert not llm.only_local_left()
+    llm._unavailable["gemini:a"] = "daily"
+    assert llm.only_local_left()                                           # a disabled model does not count

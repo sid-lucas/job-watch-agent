@@ -94,6 +94,9 @@ def fetch_career_sites(state: JobState) -> dict:
                     f"{len(collection.new_kept)} new and kept; stop {collection.stop}, "
                     f"failed chunks {collection.failed_chunks}")
                 details = collect_details(collection, log=log)
+                # A page whose criteria wait for the next run: the offer stays new (not saved)
+                collection.deferred += details.deferred
+                collection.new_kept = [o for o in collection.new_kept if o.key not in details.deferred]
                 found = to_offers(collection, details, fetched)
                 log(f"{len(details.details)} detailed, {len(found) - len(details.details)} without detail")
                 offers += found

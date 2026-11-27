@@ -1,5 +1,5 @@
-"""Shared LLM access for public web data: cloud models first (Gemini, then Mistral), a local model
-as last resort. Personal documents are never sent through this module."""
+"""Shared LLM access for public web data: the models of config.MODEL_CHAIN in order, cloud models
+first, a local model as last resort. Personal documents are never sent through this module."""
 import logging
 import os
 import re
@@ -118,12 +118,16 @@ def classify_failure(error: BaseException) -> tuple[FailureKind, float | None]:
     """What a failed call means for the model, and the delay to wait when it says so.
 
     per_minute: wait, then the same model again. daily: quota spent for the day (or month), skip
-    the model for the run. auth: key refused, skip. unknown_quota: a 429 that cannot be read.
-    other: timeout, overload, bad answer... the next model takes this call only.
+    the model for the run. auth: key refused (401, 403) or payment required (402: no free tier
+    active), skip. unknown_quota: a 429 that cannot be read. other: timeout, overload, bad
+    answer... the next model takes this call only.
     """
     if any(isinstance(e, (ModelAuthenticationError, ModelPermissionDeniedError)) for e in _error_chain(error)):
         return "auth", None
     text = " ".join(str(e) for e in _error_chain(error))
+    if (any(402 in (getattr(e, "code", None), getattr(e, "status_code", None)) for e in _error_chain(error))
+            or re.search(r"\b402\b|payment required", text, re.IGNORECASE)):
+        return "auth", None
     rate_limited = (any(isinstance(e, ModelRateLimitError) for e in _error_chain(error))
                     or any(getattr(e, "code", None) == 429 for e in _error_chain(error))
                     or "RESOURCE_EXHAUSTED" in text or re.search(r"\b429\b", text) is not None)
@@ -206,40 +210,43 @@ def _client(provider: str, model: str):
 OPTIONAL_KEYS = {"mistral": "MISTRAL_API_KEY"}
 
 
-CHAINS = {"triage": "TRIAGE_CHAIN", "detail": "DETAIL_CHAIN", "navigation": "NAVIGATION_CHAIN"}
-Task = Literal["triage", "detail", "navigation"]
-
-
-def llm_chain(task: Task = "detail") -> list[tuple[str, str]]:
-    """Chain of the task from config, or only one provider when LLM_ONLY is set (e.g. LLM_ONLY=ollama).
+def llm_chain() -> list[tuple[str, str]]:
+    """Enabled models of config.MODEL_CHAIN, or only one provider when LLM_ONLY is set (e.g. LLM_ONLY=ollama).
 
     An optional provider without its API key in the environment is left out.
     """
     only = os.environ.get("LLM_ONLY")
-    chain = [(p, m) for p, m in getattr(config, CHAINS[task]) if (not only or p == only)
+    chain = [(p, m) for p, m, enabled in config.MODEL_CHAIN if enabled and (not only or p == only)
              and (p not in OPTIONAL_KEYS or os.environ.get(OPTIONAL_KEYS[p]))]
     if not chain:
-        raise ValueError(f"No model left in {CHAINS[task]} for LLM_ONLY={only}")
+        raise ValueError(f"No model left in MODEL_CHAIN for LLM_ONLY={only}")
     return chain
 
 
+def only_local_left() -> bool:
+    """True when every cloud model of the chain is skipped for the rest of the run (daily quota
+    spent, key refused): only local models can still answer."""
+    with _calls_lock:
+        return all(f"{p}:{m}" in _unavailable for p, m in llm_chain() if p not in config.LOCAL_PROVIDERS)
+
+
 @cache
-def structured_llm(schema, task: Task = "detail", models: tuple[tuple[str, str], ...] | None = None):
-    """Models of the task's chain (or the given models), each returning the Pydantic schema, tried in
+def structured_llm(schema, models: tuple[tuple[str, str], ...] | None = None):
+    """Models of the chain (or the given models), each returning the Pydantic schema, tried in
     order with the rate-limit policy."""
     return _chain([(f"{provider}:{model}", _client(provider, model).with_structured_output(schema))
-                   for provider, model in (models or llm_chain(task))])
+                   for provider, model in (models or llm_chain())])
 
 
 @cache
-def tool_llm(tools: tuple, task: Task = "navigation"):
-    """Models of the task's chain, each bound to the given tools, tried in order.
+def tool_llm(tools: tuple, models: tuple[tuple[str, str], ...] | None = None):
+    """Models of the chain (or the given models), each bound to the given tools, tried in order.
 
     Binding is done per model before the fallbacks are chained: a fallback model receives
     the same tool schemas. The answer is an AIMessage; its tool_calls are requests only.
     """
     return _chain([(f"{provider}:{model}", _client(provider, model).bind_tools(list(tools)))
-                   for provider, model in llm_chain(task)])
+                   for provider, model in (models or llm_chain())])
 
 
 def call_with_retry(func, *args, attempts: int = 2, wait_seconds: int = 5):

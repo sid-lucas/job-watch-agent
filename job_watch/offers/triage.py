@@ -3,7 +3,7 @@ category only for Technology/IT.
 
 The LLM only states facts from closed lists in code (general, never the user's preferences) and
 never gives a score: the rules of the code decide what to keep. Offers are sent in batches whose
-size depends on the provider of the model asked (TRIAGE_BATCH_SIZE); what a model leaves without a
+size depends on the model asked (TRIAGE_BATCH_SIZE, by model, else by provider); what a model leaves without a
 valid answer goes to the next model of the chain, split with that model's size. Every answer is checked in
 code: unknown ids are ignored, the first answer per id wins, a category is kept only for
 Technology/IT. An offer without a valid answer has no domain: it is kept (never set aside on a
@@ -105,7 +105,8 @@ def check_batch(answer: TriageBatch | None, ids) -> dict[int, Triage]:
 
 def batch_size(model: tuple[str, str]) -> int:
     """Offers per call for this model, by provider."""
-    return config.TRIAGE_BATCH_SIZE.get(model[0], config.TRIAGE_BATCH_SIZE["default"])
+    sizes = config.TRIAGE_BATCH_SIZE
+    return sizes.get(f"{model[0]}:{model[1]}", sizes.get(model[0], sizes["default"]))
 
 
 def _triage_with(models: list[tuple[str, str]], items: list[tuple[int, TriageInput]], size: int | None,
@@ -119,7 +120,7 @@ def _triage_with(models: list[tuple[str, str]], items: list[tuple[int, TriageInp
         return {}
     model, rest = models[0], models[1:]
     model_size = size or batch_size(model)
-    llm = structured_llm(TriageBatch, "triage", (model,))
+    llm = structured_llm(TriageBatch, (model,))
     results: dict[int, Triage] = {}
     left: list[tuple[int, TriageInput]] = []
     batches = (len(items) + model_size - 1) // model_size
@@ -138,7 +139,7 @@ def _triage_with(models: list[tuple[str, str]], items: list[tuple[int, TriageInp
 
 def triage_offers(offers: list[TriageInput], log: Callable[[str], None] | None = None,
                   models: tuple[tuple[str, str], ...] | None = None, size: int | None = None) -> list[Triage]:
-    """One Triage per offer, in the same order. models: a fixed chain instead of TRIAGE_CHAIN;
+    """One Triage per offer, in the same order. models: a fixed chain instead of config.MODEL_CHAIN;
     size: offers per call for every model instead of TRIAGE_BATCH_SIZE."""
-    valid = _triage_with(list(models or llm_chain("triage")), list(enumerate(offers)), size, log)
+    valid = _triage_with(list(models or llm_chain()), list(enumerate(offers)), size, log)
     return [valid.get(index, Triage(reason="no valid answer")) for index in range(len(offers))]

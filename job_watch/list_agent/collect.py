@@ -18,7 +18,7 @@ from job_watch.list_agent.extraction import CheckedOffer, extract_observations
 from job_watch.llm import calls_since, model_calls
 from job_watch.offers.listed import known_keys, now_iso, save_listed_offers
 from job_watch.offers.ask_criteria import OfferInput
-from job_watch.offers.scoring import Asked, ask, screen_listed
+from job_watch.offers.scoring import Asked, ask, domain_kept, screen_listed
 from job_watch.offers.triage import TriageInput, triage_offers
 
 
@@ -31,6 +31,7 @@ class CompanyCollection(BaseModel):
     new_keys: list[str]             # offers not yet in listed_offers
     seen: str                       # time of the run, written as first_seen / last_seen
     new_kept: list[CheckedOffer]    # new offers kept by the filter: candidates for the detail phase
+    deferred: list[str] = []        # new offers whose criteria wait for the next run: never saved, still new
     failed_chunks: int
     model_calls: dict[str, int]
     seconds: float
@@ -58,23 +59,31 @@ def collect_company(company: str, url: str, conn: sqlite3.Connection,
     for offer, verdict in zip(to_triage, verdicts):
         offer.domain, offer.category, offer.secondary_category = verdict.domain, verdict.category, verdict.secondary
         offer.category_reason = verdict.reason
-        screen_listed(offer, company)           # domain, then the criteria on the listing data
+    # Domain, then the criteria on the listing data (one LLM call per offer whose domain is kept)
+    total = sum(domain_kept(o.domain) for o in to_triage)
+    deferred, number = [], 0
+    for offer in to_triage:
+        if domain_kept(offer.domain):
+            number += 1
+        if not screen_listed(offer, company, log=log, progress=f"{number}/{total}"):
+            deferred.append(offer.key)
     if log and to_triage:
-        asked = sum(o.asked is not None for o in to_triage)
-        log(f"criteria on the listing: {asked} offers asked, "
-            f"{sum(bool(o.rejected_by) for o in to_triage)} set aside")
+        log(f"criteria on the listing: {sum(o.asked is not None for o in to_triage)} offers asked, "
+            f"{sum(bool(o.rejected_by) for o in to_triage)} set aside, {len(deferred)} deferred to the next run")
+    new_keys = [key for key in new_keys if key not in deferred]
     return CompanyCollection(
         company=company, url=url, stop=run.stop, pages_reached=agent_run.pages_reached(run.trail),
-        offers=extraction.offers, new_keys=new_keys, seen=now_iso(),
-        new_kept=[o for o in extraction.offers if o.key in new and keep(o)],
+        offers=extraction.offers, new_keys=new_keys, seen=now_iso(), deferred=deferred,
+        new_kept=[o for o in extraction.offers if o.key in new_keys and keep(o)],
         failed_chunks=extraction.failed_chunks, model_calls=calls_since(before), seconds=run.seconds,
     )
 
 
 def save_collection(conn: sqlite3.Connection, collection: CompanyCollection, commit: bool = True) -> list[str]:
-    """Write the offers of a collection in listed_offers (new ones inserted, known ones: last_seen)."""
-    return save_listed_offers(conn, collection.company, collection.offers, collection.seen, keep=keep,
-                              commit=commit)
+    """Write the offers of a collection in listed_offers (new ones inserted, known ones: last_seen).
+    Deferred offers are left out: they stay new for the next run."""
+    offers = [o for o in collection.offers if o.key not in collection.deferred]
+    return save_listed_offers(conn, collection.company, offers, collection.seen, keep=keep, commit=commit)
 
 
 def keep(offer: CheckedOffer) -> bool:
@@ -93,6 +102,7 @@ class DetailCollection(BaseModel):
     texts: dict[str, str]               # offer key -> raw page text (cut), for V2
     refused_pages: list[DetailPage]     # not allowed, redirected, title not found
     failed_extractions: list[str]       # keys of accepted pages for which every model failed (listing answers kept)
+    deferred: list[str] = []            # accepted pages whose criteria wait for the next run (only local models left)
     skipped: list[Skipped]              # offers not opened, with the reason
     model_calls: dict[str, int]
 
@@ -110,13 +120,16 @@ def collect_details(collection: CompanyCollection, log: Callable[[str], None] | 
     if log:
         log(f"details: {len(plan.to_open)} pages to open, {len(plan.skipped)} offers not opened")
     pages = open_details(plan.to_open, collection.url, log=log, **session_options)
-    details, texts, failed = [], {}, []
-    for page in pages:
-        if page.failure:
-            continue
+    details, texts, failed, deferred = [], {}, [], []
+    accepted = [page for page in pages if not page.failure]
+    for number, page in enumerate(accepted, 1):
         offer = offers[page.key]
         query = OfferInput(company=collection.company, title=offer.title, location=offer.location, ad=page.text)
-        asked = ask(query, full_ad=not page.truncated)      # a page cut at DETAIL_MAX_CHARS is not the whole ad
+        # A page cut at DETAIL_MAX_CHARS is not the whole ad
+        asked = ask(query, full_ad=not page.truncated, log=log, progress=f"page {number}/{len(accepted)}")
+        if asked is None:
+            deferred.append(page.key)
+            continue
         texts[page.key] = page.text
         if asked.criteria_answers is None:
             failed.append(page.key)
@@ -126,4 +139,4 @@ def collect_details(collection: CompanyCollection, log: Callable[[str], None] | 
         details.append(DetailAnswers(key=page.key, asked=asked))
     return DetailCollection(company=collection.company, details=details, texts=texts,
                             refused_pages=[p for p in pages if p.failure], failed_extractions=failed,
-                            skipped=plan.skipped, model_calls=calls_since(before))
+                            skipped=plan.skipped, model_calls=calls_since(before), deferred=deferred)

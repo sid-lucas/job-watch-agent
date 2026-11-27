@@ -111,19 +111,29 @@ def score_offers(state: JobState) -> dict:
     asked again: they are not stored again either.
     """
     known = storage.known_offers()
-    offers, asked = [], 0
+
+    def to_ask(offer: dict) -> bool:
+        return ((offer["company"], offer["key"]) not in known and offer["source"] != "career_site"
+                and "criteria_questions" not in offer and domain_kept(offer.get("domain")))
+
+    total = sum(to_ask(o) for o in state["offers"])
+    offers, asked, deferred = [], 0, 0
     for original in state["offers"]:
         offer = dict(original)  # work on a copy, never modify the input state
-        new = (offer["company"], offer["key"]) not in known
-        if new and offer["source"] != "career_site" and "criteria_questions" not in offer \
-                and domain_kept(offer.get("domain")):
-            offer.update(ask(offer_query(offer), full_ad=False).model_dump())
+        if to_ask(offer):
             asked += 1
+            answers = ask(offer_query(offer), full_ad=False, progress=f"{asked}/{total}",
+                          log=lambda line: print(f"  {line}", flush=True))
+            if answers is None:
+                deferred += 1           # not stored: still new on the next run
+                continue
+            offer.update(answers.model_dump())
         verdict = offer_verdict(offer) or NOT_SCORED
         offer.update(status=verdict.status, score=verdict.score, reasons=verdict.reasons)
         offers.append(offer)
     kept = sum(1 for o in offers if o["status"] == "new")
-    print(f"score_offers: {asked} RSS offers asked, {kept} kept, {len(offers) - kept} rejected")
+    print(f"score_offers: {asked - deferred} RSS offers asked, {deferred} deferred to the next run, "
+          f"{kept} kept, {len(offers) - kept} rejected")
     return {"offers": offers}
 
 

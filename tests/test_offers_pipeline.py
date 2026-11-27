@@ -333,6 +333,51 @@ def test_new_columns_are_added_and_the_fact_sheet_columns_dropped():
     conn.close()
 
 
+def test_one_progress_line_per_offer_asked(criteria, capsys):
+    from job_watch.offers.nodes import score_offers
+    offers = [{**rss_offer(f"https://rss.example/{n}", title), "domain": "Technology/IT"}
+              for n, title in enumerate(["SOC Analyst", "Developer"])]
+    score_offers({"offers": offers})
+    out = capsys.readouterr().out
+    assert "criteria 1/2: 'SOC Analyst' every model failed" not in out          # the fake model answers
+    assert "criteria 1/2: 'SOC Analyst'" in out and "criteria 2/2: 'Developer'" in out and " s\n" in out
+
+
+@pytest.fixture
+def only_local(monkeypatch):
+    """Every cloud model skipped for the run: LOCAL_ONLY_MAX_CRITERIA offers are still asked."""
+    from job_watch.offers import scoring
+    monkeypatch.setattr(scoring, "only_local_left", lambda: True)
+    monkeypatch.setattr(scoring, "_local_only", {"asked": 0})
+    monkeypatch.setattr(config, "LOCAL_ONLY_MAX_CRITERIA", 1)
+
+
+def test_rss_offers_are_deferred_when_only_local_models_are_left(criteria, only_local, capsys):
+    from job_watch.offers.nodes import save_results, score_offers
+    offers = [{**rss_offer(f"https://rss.example/{n}", title), "domain": "Technology/IT"}
+              for n, title in enumerate(["SOC Analyst", "Developer", "Tester"])]
+    scored = score_offers({"offers": offers})["offers"]
+    assert [o["title"] for o in scored] == ["SOC Analyst"] and len(criteria.prompts) == 1
+    assert "1 RSS offers asked, 2 deferred to the next run" in capsys.readouterr().out
+    save_results({"offers": scored})
+    assert storage.known_offers() == {("Bank", "url:https://rss.example/0")}         # the others stay new
+
+
+def test_listed_offers_deferred_are_not_saved(criteria, only_local):
+    from job_watch.list_agent.collect import save_collection
+    from job_watch.offers.listed import connect as connect_listed, known_keys
+    from job_watch.offers.scoring import screen_listed
+    first, second = listed("a", "SOC Analyst"), listed("b", "Developer")
+    first.domain = second.domain = "Technology/IT"
+    assert screen_listed(first, "Bank") and not screen_listed(second, "Bank")        # second: deferred
+    found = collection("Bank", [first, second])
+    found.deferred = ["b"]
+    conn = connect_listed()
+    save_collection(conn, found)
+    assert known_keys(conn, "Bank") == {"a"}
+    conn.close()
+
+
 def test_the_salary_line_of_the_feed_is_not_part_of_the_description():
     """The feed starts every description with its own salary estimate: never the employer's salary."""
     from job_watch.offers.nodes import without_board_salary

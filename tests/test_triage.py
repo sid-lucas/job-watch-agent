@@ -35,7 +35,7 @@ def fake(monkeypatch):
     """install(answer) for every model, or install(answer, model=("ollama", "q")) for one model of the chain."""
     models: dict = {}
 
-    def structured_llm(schema, task, chain=None):
+    def structured_llm(schema, chain=None):
         return models.get(chain[0], models.get(None))
 
     monkeypatch.setattr(triage, "structured_llm", structured_llm)
@@ -86,10 +86,10 @@ def test_invalid_values_are_refused_by_the_schema():
         item(0, TECH, "Physical security/safety")
 
 
-def test_batch_size_follows_the_provider_of_the_model(monkeypatch):
-    monkeypatch.setattr(config, "TRIAGE_BATCH_SIZE", {"ollama": 10, "gemini": 25, "default": 10})
+def test_batch_size_follows_the_model_then_its_provider(monkeypatch):
+    monkeypatch.setattr(config, "TRIAGE_BATCH_SIZE", {"gemini:gemma": 8, "ollama": 10, "gemini": 25, "default": 10})
     assert triage.batch_size(("ollama", "q")) == 10 and triage.batch_size(("gemini", "g")) == 25
-    assert triage.batch_size(("mistral", "m")) == 10
+    assert triage.batch_size(("gemini", "gemma")) == 8 and triage.batch_size(("mistral", "m")) == 10
 
 
 def test_a_batch_passed_to_the_next_model_is_split_with_its_size(fake, monkeypatch):

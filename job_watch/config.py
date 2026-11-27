@@ -20,21 +20,30 @@ BASE_DIR = Path(__file__).parent.parent
 DB_PATH = BASE_DIR / "data" / "offers.db"
 REGISTRY_PATH = BASE_DIR / "data" / "career_sites.json"
 
-# LLM chains for public web data, one per task, tried in order: (provider, model).
-# Mistral is ignored without MISTRAL_API_KEY.
-CLOUD_MODELS = [
-    ("gemini", "gemini-3.5-flash-lite"),
-    ("gemini", "gemini-3.1-flash-lite"),
+# LLM chain for public web data, the same for every task (triage, list extraction, list agent,
+# criteria, page judge): tried in order, the first one is the preferred one. (provider, model, enabled).
+# Free tiers only; quotas per model on the Gemini API (AI Studio, Rate limits). A daily quota spent
+# skips that model for the rest of the run; a per-minute limit (requests or tokens) is waited for.
+MODEL_CHAIN = [
+    ("gemini", "gemini-3.5-flash-lite", True),      # 500 requests per day
+    ("gemini", "gemini-3.1-flash-lite", True),      # 500 per day
+    ("gemini", "gemini-3.8-flash", True),           # 20 per day
+    ("gemini", "gemini-3.6-flash", True),           # 20 per day
+    ("gemini", "gemini-3-flash-preview", True),     # 20 per day
+    ("gemini", "gemini-4-hydrogen", True),          # 20 per day
+    # 30 per minute, 16K tokens per minute, 14.4K per day. Disabled until scripts/check_model.py
+    # confirms structured output and tool calling on it
+    ("gemini", "gemma-4-31b-it", False),
+    ("mistral", "mistral-small-latest", False),     # free tier not active (402); needs MISTRAL_API_KEY
+    ("ollama", "qwen3:8b", True),                   # local, last resort
 ]
-# Triage: short titles in batches. Cloud first: the local model misses IT offers with ambiguous titles
-TRIAGE_CHAIN = [*CLOUD_MODELS, ("mistral", "mistral-small-latest"), ("ollama", "qwen3:8b")]
-# Reading pages (list extraction, offer detail, page judge): long text, structured output
-DETAIL_CHAIN = [*CLOUD_MODELS, ("mistral", "mistral-small-latest"), ("ollama", "qwen3:8b")]
-# List agent: tool calling
-NAVIGATION_CHAIN = [*CLOUD_MODELS, ("mistral", "mistral-small-latest"), ("ollama", "qwen3:8b")]
-# Offers per triage call, by provider of the model that answers (a batch passed to the next model
-# of the chain is split again with that model's size)
-TRIAGE_BATCH_SIZE = {"ollama": 10, "gemini": 25, "mistral": 25, "default": 10}
+LOCAL_PROVIDERS = {"ollama"}
+# When only local models are left (every cloud model skipped for the run), at most this many offers
+# are still answered by the criteria during the run; the others wait for the next run (they stay new)
+LOCAL_ONLY_MAX_CRITERIA = 5
+# Offers per triage call, by model ("provider:model"), else by provider, of the model that answers
+# (a batch passed to the next model of the chain is split again with that model's size)
+TRIAGE_BATCH_SIZE = {"gemini:gemma-4-31b-it": 10, "gemini": 25, "mistral": 25, "ollama": 10, "default": 10}
 OLLAMA_THINK = False     # qwen3 reasoning ("thinking"): slower; off by default
 OLLAMA_NUM_CTX = 24576   # context size in tokens; fits a 30000-character page in 11 GB of VRAM
 
