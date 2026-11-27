@@ -10,6 +10,9 @@ user_config.py
 # Local data (database, personal documents)
 data/*
 !data/.gitkeep
+!data/personal/
+data/personal/*
+!data/personal/.gitkeep
 
 # Secrets (e-mail credentials later)
 .env
