@@ -54,3 +54,26 @@ def test_page_text_is_stored_as_data(conn):
     hostile = "x'); DROP TABLE listed_offers; --"
     save_listed_offers(conn, "Bank", [offer(hostile, "text:abc")], "2026-11-25")
     assert rows(conn)[0][2] == hostile
+
+
+def test_a_listed_offers_table_of_the_former_triage_is_migrated(tmp_path):
+    """Kinds of IT job dropped, the reason of the triage kept under its new name."""
+    import sqlite3
+    from job_watch.offers.listed import connect
+    db = tmp_path / "old.db"
+    conn = sqlite3.connect(db)
+    conn.execute("CREATE TABLE listed_offers (company TEXT NOT NULL, key TEXT NOT NULL, title TEXT NOT NULL, "
+                 "location TEXT NOT NULL, link TEXT NOT NULL, verified INTEGER NOT NULL, first_seen TEXT NOT NULL, "
+                 "last_seen TEXT NOT NULL, kept INTEGER, domain TEXT, category TEXT, secondary_category TEXT, "
+                 "category_reason TEXT, PRIMARY KEY (company, key))")
+    conn.execute("INSERT INTO listed_offers VALUES ('Bank', 'a', 'SOC Analyst', 'Geneva', '', 0, 't', 't', 1, "
+                 "'Technology/IT', 'Cybersecurity SOC/incident response', NULL, 'SOC title')")
+    conn.commit()
+    conn.close()
+    conn = connect(db)
+    columns = {row[1] for row in conn.execute("PRAGMA table_info(listed_offers)")}
+    assert not columns & {"category", "secondary_category", "category_reason"}
+    assert conn.execute("SELECT title, domain, triage_reason FROM listed_offers").fetchall() == [
+        ("SOC Analyst", "Technology/IT", "SOC title")]
+    conn.close()
+

@@ -28,12 +28,10 @@ MAX_EVIDENCE_CHARS = 150    # quote shown in a reason
 
 # Domains of the triage (offers/triage.py), a closed list with what the LLM is told about each one.
 # General, never the user's preferences: KEPT_DOMAINS in user_config.py chooses among them.
-TECHNOLOGY = "Technology/IT"
-OTHER = "Other"
 
 # Domains (closed list) with what the LLM is told about each one
 DOMAINS = {
-    TECHNOLOGY: "software, IT infrastructure, cloud, network, cybersecurity, data, AI, IT support "
+    "Technology/IT": "software, IT infrastructure, cloud, network, cybersecurity, data, AI, IT support "
                 "(developer, sysadmin, SOC analyst, data engineer, IT project manager)",
     "Engineering & R&D (non-IT)": "engineering and technicians outside IT: mechanical, electrical, "
                                   "microtechnology, chemistry, research labs, quality engineering, maintenance",
@@ -47,7 +45,7 @@ DOMAINS = {
     "Healthcare & humanitarian": "medical and health roles, humanitarian delegates and field roles",
     "Security & safety (physical)": "guards, physical security, safety at work, building security, fire safety",
     "Education & training": "teachers, trainers, apprentices' coaches, academic positions",
-    OTHER: "the title gives no clue at all",
+    "Other": "the title gives no clue at all",
 }
 
 

@@ -58,8 +58,7 @@ def to_offers(collection: CompanyCollection, details: DetailCollection, fetched:
     for listed in collection.new_kept:
         offer = Offer(key=listed.key, title=listed.title, company=collection.company, location=listed.location,
                       description=details.texts.get(listed.key, ""), source=SOURCE, link=listed.link, published="",
-                      fetched=fetched, list_url=collection.url, domain=listed.domain, category=listed.category,
-                      secondary_category=listed.secondary_category)
+                      fetched=fetched, list_url=collection.url, domain=listed.domain)
         asked = by_key[listed.key].asked if listed.key in by_key else listed.asked
         if asked is not None:
             offer.update(asked.model_dump())

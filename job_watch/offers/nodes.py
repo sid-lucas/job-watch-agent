@@ -95,7 +95,7 @@ def triage_rss(state: JobState) -> dict:
     verdicts = triage_offers([TriageInput(title=o["title"], location=o["location"], company=o["company"])
                               for o in todo], log=lambda line: print(f"  {line}", flush=True))
     for offer, verdict in zip(todo, verdicts):
-        offer.update(domain=verdict.domain, category=verdict.category, secondary_category=verdict.secondary)
+        offer.update(domain=verdict.domain)
     print(f"triage_rss: {len(todo)} new RSS offers triaged")
     return {"offers": offers}
 

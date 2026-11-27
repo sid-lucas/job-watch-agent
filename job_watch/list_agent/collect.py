@@ -57,8 +57,7 @@ def collect_company(company: str, url: str, conn: sqlite3.Connection,
     verdicts = triage_offers([TriageInput(title=o.title, location=o.location, company=company) for o in to_triage],
                              log=log)
     for offer, verdict in zip(to_triage, verdicts):
-        offer.domain, offer.category, offer.secondary_category = verdict.domain, verdict.category, verdict.secondary
-        offer.category_reason = verdict.reason
+        offer.domain, offer.triage_reason = verdict.domain, verdict.reason
     # Domain, then the criteria on the listing data (one LLM call per offer whose domain is kept)
     total = sum(domain_kept(o.domain) for o in to_triage)
     deferred, number = [], 0

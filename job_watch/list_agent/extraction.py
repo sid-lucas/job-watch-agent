@@ -111,9 +111,7 @@ class CheckedOffer(BaseModel):
     key: str = ""       # set by deduplicate(): stable across runs, from page data only
     # Set by the triage of new offers (offers.triage); domain None: not triaged, or no valid answer
     domain: str | None = None
-    category: str | None = None             # Technology/IT only
-    secondary_category: str | None = None
-    category_reason: str = ""
+    triage_reason: str = ""                 # a few words of the triage: why this domain
     asked: Asked | None = None              # criteria answered on the listing data (offers.scoring)
     rejected_by: list[str] = []             # domain not kept, or reject criteria on the listing; empty: kept
 

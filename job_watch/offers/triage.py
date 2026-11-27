@@ -1,13 +1,12 @@
-"""Triage of new offers on title, location and company, from coarse to fine: a domain, then a
-category only for Technology/IT.
+"""Triage of new offers on title, location and company: one domain of a closed list (cheap, in batches),
+so that offers outside the kept domains are set aside before any criteria call.
 
 The LLM only states facts from closed lists in code (general, never the user's preferences) and
 never gives a score: the rules of the code decide what to keep. Offers are sent in batches whose
 size depends on the model asked (TRIAGE_BATCH_SIZE, by model, else by provider); what a model leaves without a
 valid answer goes to the next model of the chain, split with that model's size. Every answer is checked in
-code: unknown ids are ignored, the first answer per id wins, a category is kept only for
-Technology/IT. An offer without a valid answer has no domain: it is kept (never set aside on a
-fact that is not known).
+code: unknown ids are ignored, the first answer per id wins. An offer without a valid answer has
+no domain: it is kept (never set aside on a fact that is not known).
 """
 from collections.abc import Callable
 from typing import Literal
@@ -15,38 +14,18 @@ from typing import Literal
 from pydantic import BaseModel, Field
 
 from job_watch import config
-from job_watch.offers.criteria import DOMAINS, TECHNOLOGY
+from job_watch.offers.criteria import DOMAINS
 from job_watch.list_agent.tools import _untrusted
 from job_watch.llm import call_with_retry, llm_chain, structured_llm
 
 # Domains: closed list of offers/criteria.py (KEPT_DOMAINS in user_config.py chooses among them)
 Domain = Literal[*DOMAINS]
-# Fine categories, asked only for Technology/IT
-TECH_CATEGORIES = [
-    "Cybersecurity SOC/incident response",
-    "Cybersecurity GRC/risk/compliance",
-    "Cybersecurity engineering/architecture/pentest",
-    "AI security",
-    "AI/ML/data science",
-    "Software engineering",
-    "Infrastructure/cloud/network",
-    "Data engineering/BI",
-    "IT support/IT management",
-]
-TechCategory = Literal[
-    "Cybersecurity SOC/incident response", "Cybersecurity GRC/risk/compliance",
-    "Cybersecurity engineering/architecture/pentest", "AI security", "AI/ML/data science",
-    "Software engineering", "Infrastructure/cloud/network", "Data engineering/BI", "IT support/IT management",
-]
 MAX_REASON_CHARS = 200
 
 
 class TriageItem(BaseModel):
     id: int = Field(description="Number of the offer, as given in <offers>")
     domain: Domain = Field(description="Domain of the job")
-    category: TechCategory | None = Field(default=None, description="Only for Technology/IT: the kind of IT job")
-    secondary: TechCategory | None = Field(default=None,
-                                           description="Only for Technology/IT: a second kind, if clearly relevant")
     reason: str = Field(description="A few words: why")
 
 
@@ -56,8 +35,6 @@ class TriageBatch(BaseModel):
 
 class Triage(BaseModel):
     domain: str | None = None       # None: no valid answer (kept)
-    category: str | None = None     # Technology/IT only
-    secondary: str | None = None
     reason: str = ""
     answered: bool = False
 
@@ -78,9 +55,7 @@ Rules:
 - Engineers and technicians outside IT are "Engineering & R&D (non-IT)".
 - Use "Other" only when the title gives no clue at all; otherwise choose the closest domain.
 - When in doubt between Technology/IT and another domain, choose Technology/IT.
-Only for "Technology/IT", also give its category, and a second one only when the job clearly spans two:
-""" + " | ".join(TECH_CATEGORIES) + """
-For other domains, leave category and secondary empty. Answer for every offer, with its number."""
+Answer for every offer, with its number."""
 
 
 def _prompt(batch: list[tuple[int, TriageInput]]) -> str:
@@ -90,21 +65,17 @@ def _prompt(batch: list[tuple[int, TriageInput]]) -> str:
 
 
 def check_batch(answer: TriageBatch | None, ids) -> dict[int, Triage]:
-    """Valid answers by offer id: known ids only, the first answer wins, categories for Technology/IT only."""
+    """Valid answers by offer id: known ids only, the first answer wins."""
     result: dict[int, Triage] = {}
     for item in (answer.items if answer else []):
         if item.id not in ids or item.id in result:
             continue
-        technology = item.domain == TECHNOLOGY
-        category = item.category if technology else None
-        secondary = item.secondary if technology and item.secondary != category else None
-        result[item.id] = Triage(domain=item.domain, category=category, secondary=secondary,
-                                 reason=item.reason.strip()[:MAX_REASON_CHARS], answered=True)
+        result[item.id] = Triage(domain=item.domain, reason=item.reason.strip()[:MAX_REASON_CHARS], answered=True)
     return result
 
 
 def batch_size(model: tuple[str, str]) -> int:
-    """Offers per call for this model, by provider."""
+    """Offers per call for this model: by model, else by provider."""
     sizes = config.TRIAGE_BATCH_SIZE
     return sizes.get(f"{model[0]}:{model[1]}", sizes.get(model[0], sizes["default"]))
 

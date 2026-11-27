@@ -14,15 +14,17 @@ from job_watch import config
 # without any LLM call (scripts/rescore.py). JSON columns hold lists (criteria_answers: null when
 # every model failed).
 FACT_COLUMNS = {
-    "domain": "TEXT", "category": "TEXT", "secondary_category": "TEXT",         # triage
+    "domain": "TEXT",                                                           # triage
     "criteria_questions": "TEXT", "criteria_answers": "TEXT", "criteria_model": "TEXT", "full_ad": "INTEGER",
 }
 JSON_COLUMNS = {"reasons", "criteria_answers"}
 # Columns of the detail fact sheet, replaced by the criteria: dropped from an existing table. The
 # career-site publication date came from that fact sheet too (not checked in the page): emptied.
-DROPPED_COLUMNS = ("detail_summary", "requirements", "city", "country", "seniority", "experience_years",
-                   "experience_requirement", "languages", "contract", "workload", "salary", "education",
-                   "ad_language")
+FACT_SHEET_COLUMNS = ("detail_summary", "requirements", "city", "country", "seniority", "experience_years",
+                      "experience_requirement", "languages", "contract", "workload", "salary", "education",
+                      "ad_language")
+# Kinds of IT job of the former triage, replaced by the criteria: dropped too
+DROPPED_COLUMNS = (*FACT_SHEET_COLUMNS, "category", "secondary_category")
 COLUMNS = ("company", "key", "link", "title", "location", "description", "source", "published", "fetched",
            "score", "reasons", "status", *FACT_COLUMNS)
 
@@ -80,7 +82,7 @@ def connect() -> sqlite3.Connection:
     dropped = [name for name in DROPPED_COLUMNS if name in columns]
     for name in dropped:
         conn.execute(f"ALTER TABLE offers DROP COLUMN {name}")
-    if dropped:
+    if set(dropped) & set(FACT_SHEET_COLUMNS):
         conn.execute("UPDATE offers SET published = '' WHERE source = 'career_site'")
     conn.commit()
     return conn

@@ -15,8 +15,6 @@ class Offer(TypedDict):
 
     # Triage (offers.triage): RSS and career-site offers
     domain: NotRequired[str | None]
-    category: NotRequired[str | None]
-    secondary_category: NotRequired[str | None]
 
     # Career-site offers only: list URL
     list_url: NotRequired[str]

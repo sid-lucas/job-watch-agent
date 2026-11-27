@@ -5,14 +5,14 @@ import pytest
 
 from job_watch import config
 from job_watch.offers import triage
-from job_watch.offers.triage import (DOMAINS, TECH_CATEGORIES, Triage, TriageBatch, TriageInput, TriageItem,
+from job_watch.offers.triage import (DOMAINS, Triage, TriageBatch, TriageInput, TriageItem,
                                      check_batch, triage_offers)
 
 TECH = "Technology/IT"
 
 
-def item(i, domain, category=None, secondary=None, reason="title"):
-    return TriageItem(id=i, domain=domain, category=category, secondary=secondary, reason=reason)
+def item(i, domain, reason="title"):
+    return TriageItem(id=i, domain=domain, reason=reason)
 
 
 def offers(n):
@@ -52,7 +52,6 @@ def ids_of(prompt):
 
 def test_closed_lists_match_the_schema():
     assert list(DOMAINS) == list(get_args(triage.Domain)) and len(DOMAINS) == 10
-    assert TECH_CATEGORIES == list(get_args(triage.TechCategory))
     assert "Unclear" not in DOMAINS and "Other" in DOMAINS
 
 
@@ -66,15 +65,13 @@ def test_the_prompt_describes_every_domain_and_the_rules():
 
 def test_check_batch_keeps_only_valid_answers():
     answer = TriageBatch(items=[
-        item(0, TECH, "Software engineering", "Software engineering"),      # secondary = category: dropped
-        item(1, TECH, "AI security", "AI/ML/data science", "x" * 500),      # reason cut
+        item(0, TECH),
+        item(1, TECH, "x" * 500),                                           # reason cut
         item(1, "Other"),                                                   # second answer for id 1: ignored
-        item(7, TECH, "Software engineering"),                              # not in this batch
-        item(2, "Finance, banking & accounting", "AI security")])           # category for a non-IT domain: dropped
+        item(7, TECH),                                                      # not in this batch
+        item(2, "Finance, banking & accounting")])
     valid = check_batch(answer, range(0, 3))
-    assert {i: (t.domain, t.category, t.secondary) for i, t in valid.items()} == {
-        0: (TECH, "Software engineering", None), 1: (TECH, "AI security", "AI/ML/data science"),
-        2: ("Finance, banking & accounting", None, None)}
+    assert {i: t.domain for i, t in valid.items()} == {0: TECH, 1: TECH, 2: "Finance, banking & accounting"}
     assert len(valid[1].reason) == triage.MAX_REASON_CHARS and check_batch(None, range(3)) == {}
 
 
@@ -82,8 +79,7 @@ def test_invalid_values_are_refused_by_the_schema():
     from pydantic import ValidationError
     with pytest.raises(ValidationError):
         item(0, "CEO with bonus")
-    with pytest.raises(ValidationError):
-        item(0, TECH, "Physical security/safety")
+    assert set(TriageBatch.model_json_schema()["$defs"]["TriageItem"]["properties"]) == {"id", "domain", "reason"}
 
 
 def test_batch_size_follows_the_model_then_its_provider(monkeypatch):
@@ -95,7 +91,7 @@ def test_batch_size_follows_the_model_then_its_provider(monkeypatch):
 def test_a_batch_passed_to_the_next_model_is_split_with_its_size(fake, monkeypatch):
     monkeypatch.setattr(config, "TRIAGE_BATCH_SIZE", {"gemini": 4, "ollama": 1, "default": 10})
     cloud = fake(lambda prompt: None, model=("gemini", "g"))                       # every call fails
-    local = fake(lambda prompt: TriageBatch(items=[item(i, TECH, "Software engineering") for i in ids_of(prompt)]),
+    local = fake(lambda prompt: TriageBatch(items=[item(i, TECH) for i in ids_of(prompt)]),
                  model=("ollama", "q"))
     lines = []
     result = triage_offers(offers(6), log=lines.append, models=(("gemini", "g"), ("ollama", "q")))
@@ -108,7 +104,7 @@ def test_a_batch_passed_to_the_next_model_is_split_with_its_size(fake, monkeypat
 def test_offers_left_out_of_an_answer_go_to_the_next_model(fake, monkeypatch):
     monkeypatch.setattr(config, "TRIAGE_BATCH_SIZE", {"gemini": 10, "ollama": 10, "default": 10})
     fake(lambda prompt: TriageBatch(items=[item(i, "Other") for i in ids_of(prompt) if i % 2]), model=("gemini", "g"))
-    local = fake(lambda prompt: TriageBatch(items=[item(i, TECH, "AI security") for i in ids_of(prompt)]),
+    local = fake(lambda prompt: TriageBatch(items=[item(i, TECH) for i in ids_of(prompt)]),
                  model=("ollama", "q"))
     result = triage_offers(offers(4), models=(("gemini", "g"), ("ollama", "q")))
     assert [ids_of(p) for p in local.prompts] == [[0, 2]]
@@ -116,7 +112,7 @@ def test_offers_left_out_of_an_answer_go_to_the_next_model(fake, monkeypatch):
 
 
 def test_offers_are_sent_in_batches_and_missing_answers_have_no_domain(fake):
-    model = fake(lambda prompt: TriageBatch(items=[item(i, TECH, "Software engineering")
+    model = fake(lambda prompt: TriageBatch(items=[item(i, TECH)
                                                    for i in ids_of(prompt) if i % 2]))
     lines = []
     result = triage_offers(offers(10), log=lines.append, size=4, models=(("gemini", "m"),))

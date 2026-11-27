@@ -28,9 +28,7 @@ CREATE TABLE IF NOT EXISTS listed_offers (
     last_seen   TEXT NOT NULL,
     kept        INTEGER,            -- 1 kept by the filter, 0 not kept, NULL not filtered
     domain              TEXT,       -- triage (offers.triage), NULL when not triaged or no valid answer
-    category            TEXT,       -- Technology/IT only
-    secondary_category  TEXT,
-    category_reason     TEXT,
+    triage_reason       TEXT,       -- a few words of the triage: why this domain
     reject_reason       TEXT,       -- domain or reject criteria that set the offer aside, when kept = 0
     criteria_questions  TEXT,       -- criteria answered on the listing data (offers.scoring), raw
     criteria_answers    TEXT,       -- JSON, null when every model failed
@@ -38,8 +36,7 @@ CREATE TABLE IF NOT EXISTS listed_offers (
     PRIMARY KEY (company, key)
 )
 """
-ADDED_COLUMNS = {"domain": "TEXT", "category": "TEXT", "secondary_category": "TEXT", "category_reason": "TEXT",
-                 "reject_reason": "TEXT", "criteria_questions": "TEXT", "criteria_answers": "TEXT",
+ADDED_COLUMNS = {"domain": "TEXT", "triage_reason": "TEXT", "reject_reason": "TEXT", "criteria_questions": "TEXT", "criteria_answers": "TEXT",
                  "criteria_model": "TEXT"}
 
 
@@ -47,6 +44,12 @@ def connect(path: Path | None = None) -> sqlite3.Connection:
     """Open the database (config.DB_PATH by default, read at call time) and create the table if needed."""
     conn = sqlite3.connect(path or config.DB_PATH)
     conn.execute(SCHEMA)
+    columns = {row[1] for row in conn.execute("PRAGMA table_info(listed_offers)")}
+    if "category_reason" in columns:                # former triage with kinds of IT job: its reason is kept
+        conn.execute("ALTER TABLE listed_offers RENAME COLUMN category_reason TO triage_reason")
+    for name in ("category", "secondary_category"):
+        if name in columns:
+            conn.execute(f"ALTER TABLE listed_offers DROP COLUMN {name}")
     columns = {row[1] for row in conn.execute("PRAGMA table_info(listed_offers)")}
     for name, kind in ADDED_COLUMNS.items():        # table created before the triage: add the columns
         if name not in columns:
@@ -90,12 +93,12 @@ def save_listed_offers(conn: sqlite3.Connection, company: str, offers: list[Chec
     conn.executemany(
         """
         INSERT INTO listed_offers (company, key, title, location, link, verified, first_seen, last_seen, kept,
-                                   domain, category, secondary_category, category_reason, reject_reason,
+                                   domain, triage_reason, reject_reason,
                                    criteria_questions, criteria_answers, criteria_model)
-        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
         """,
         [(company, o.key, o.title, o.location, o.link, int(o.verified), seen, seen,
-          None if keep is None else int(keep(o)), o.domain, o.category, o.secondary_category, o.category_reason,
+          None if keep is None else int(keep(o)), o.domain, o.triage_reason,
           "; ".join(o.rejected_by), *_asked_values(o)) for o in new],
     )
     conn.executemany(
