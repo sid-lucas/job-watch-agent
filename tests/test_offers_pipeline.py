@@ -347,6 +347,45 @@ def test_rescore_asks_again_only_what_has_no_answers_to_the_current_questions(cr
     assert rescore(ask_missing=True).offers_asked == 0 and len(criteria.prompts) == calls + 2
 
 
+def test_each_answer_stays_on_its_criterion_from_the_call_to_the_rescore(monkeypatch):
+    """c1..cN follow the order of CRITERIA at the call, in the database and at the rescore; another
+    order of the same questions is other questions (other fingerprint): stored answers are not reused."""
+    from helpers import criteria_settings, fake_criteria
+    from job_watch.offers.nodes import save_results, score_offers
+    from job_watch.offers.rescore import rescore
+    questions = [{"ask": "Is it about AI?", "points": 30, "label": "AI"},
+                 {"ask": "Is it a SOC job?", "points": 25, "label": "SOC"},
+                 {"ask": "Is the workload below 80%?", "points": -10, "label": "part-time"}]
+    fake_criteria(monkeypatch, criteria_settings(questions), lambda prompt: {"c2": ("yes", "SOC")})
+    offer = {**rss_offer("https://rss.example/soc", "SOC Analyst"), "domain": "Technology/IT"}
+    save_results({"offers": score_offers({"offers": [offer]})["offers"]})
+    conn = storage.connect()
+    conn.row_factory = sqlite3.Row
+    stored = storage.row_to_offer(conn.execute("SELECT * FROM offers").fetchone())
+    conn.close()
+    assert [a["id"] for a in stored["criteria_answers"] if a["answer"] == "yes"] == ["c2"]
+    assert stored["reasons"] == ["SOC (+25): 'SOC'"]
+    monkeypatch.setattr(config, "SETTINGS", criteria_settings([{**q, "points": q["points"] + 1} for q in questions]))
+    rescore()
+    conn = storage.connect()
+    assert json.loads(conn.execute("SELECT reasons FROM offers").fetchone()[0]) == ["SOC (+26): 'SOC'"]
+    conn.close()
+    reordered = criteria_settings([questions[1], questions[0], questions[2]])
+    assert reordered.questions_id != criteria_settings(questions).questions_id
+    monkeypatch.setattr(config, "SETTINGS", reordered)
+    assert rescore().offers_not_rescored == 1                                    # not read as c1 = SOC
+
+
+def test_answers_without_a_recorded_model_can_be_asked_again(criteria):
+    from job_watch.offers.nodes import save_results, score_offers
+    from job_watch.offers.rescore import rescore, to_ask
+    save_results({"offers": score_offers({"offers": [{**rss_offer("https://x.example/1", "SOC Analyst"),
+                                                     "domain": "Technology/IT"}]})["offers"]})
+    assert to_ask() == (0, 0) and to_ask(unrecorded=True) == (1, 0)        # the fake model is not recorded
+    calls = len(criteria.prompts)
+    assert rescore(ask_missing=True, unrecorded=True).offers_asked == 1 and len(criteria.prompts) == calls + 1
+
+
 def test_rescore_dry_run_writes_nothing(criteria, monkeypatch):
     from helpers import criteria_settings
     from job_watch import config

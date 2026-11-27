@@ -43,14 +43,22 @@ def _describe(status: str, score: int | None) -> str:
     return "rejected" if status == "rejected" else f"kept, score {score}"
 
 
-def to_ask() -> tuple[int, int]:
-    """(offers, listed offers) without answers to the current questions, whose domain is kept:
-    what rescore(ask_missing=True) asks, one LLM call each."""
+def _to_ask_again(offer: dict, unrecorded: bool) -> bool:
+    """No answers to the current questions (domain kept); with unrecorded, also answers stored without
+    the model that gave them (imported before it was recorded: they cannot be traced)."""
+    if offer_verdict(offer) is None:
+        return True
+    return (unrecorded and bool(offer.get("criteria_questions")) and not offer.get("criteria_model")
+            and domain_kept(offer.get("domain")))
+
+
+def to_ask(unrecorded: bool = False) -> tuple[int, int]:
+    """(offers, listed offers) that rescore(ask_missing=True) asks, one LLM call each."""
     listed.connect(config.DB_PATH).close()
     conn = storage.connect()
     conn.row_factory = sqlite3.Row
     try:
-        offers = sum(offer_verdict(storage.row_to_offer(r)) is None for r in conn.execute("SELECT * FROM offers"))
+        offers = sum(_to_ask_again(storage.row_to_offer(r), unrecorded) for r in conn.execute("SELECT * FROM offers"))
         rows = conn.execute("SELECT * FROM listed_offers WHERE kept IS NOT NULL").fetchall()
         listed_rows = sum(_listed_verdict(r) is None for r in rows)
     finally:
@@ -71,16 +79,18 @@ def _answers_json(asked: Asked) -> str | None:
     return None if answers is None else json.dumps([a.model_dump() for a in answers], ensure_ascii=False)
 
 
-def rescore(write: bool = True, ask_missing: bool = False, log: Callable[[str], None] | None = None) -> RescoreReport:
+def rescore(write: bool = True, ask_missing: bool = False, log: Callable[[str], None] | None = None,
+            unrecorded: bool = False) -> RescoreReport:
     """Apply the current settings to every stored offer (config.DB_PATH). write=False: report only.
 
     ask_missing (with write): offers without answers to the current questions are asked again; each
     answer is committed at once, so a run stopped halfway keeps what was asked. An offer deferred
-    (only local models left) stays not rescored.
+    (only local models left) stays not rescored. unrecorded: offers whose answers carry no model
+    are asked again too.
     """
     if ask_missing and not write:
         raise ValueError("ask_missing needs write=True (asking costs LLM calls; see to_ask() for a count)")
-    missing_offers, missing_listed = to_ask() if ask_missing else (0, 0)
+    missing_offers, missing_listed = to_ask(unrecorded) if ask_missing else (0, 0)
     listed.connect(config.DB_PATH).close()      # listed_offers exists with all its columns, before any write
     conn = storage.connect()
     conn.row_factory = sqlite3.Row
@@ -90,7 +100,7 @@ def rescore(write: bool = True, ask_missing: bool = False, log: Callable[[str], 
         for row in rows:
             offer = storage.row_to_offer(row)
             found = offer_verdict(offer)
-            if found is None and ask_missing:
+            if ask_missing and _to_ask_again(offer, unrecorded):
                 asked = ask(offer_query(offer), full_ad=full_ad_of(offer), log=log,
                             progress=f"offer {offers_asked + 1}/{missing_offers}")
                 offers_asked += 1
