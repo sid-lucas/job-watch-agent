@@ -31,10 +31,7 @@ MODEL_CHAIN = [
     ("gemini", "gemini-3.6-flash", True),           # 20 per day
     ("gemini", "gemini-3-flash-preview", True),     # 20 per day
     ("gemini", "gemini-4-hydrogen", True),          # 20 per day
-    # 30 per minute, 16K tokens per minute, 14.4K per day. Disabled until scripts/check_model.py
-    # confirms structured output and tool calling on it
-    ("gemini", "gemma-4-31b-it", False),
-    ("mistral", "mistral-small-latest", False),     # free tier not active (402); needs MISTRAL_API_KEY
+    ("mistral", "mistral-small-latest", False),     # free tier not active
     ("ollama", "qwen3:8b", True),                   # local, last resort
 ]
 LOCAL_PROVIDERS = {"ollama"}
@@ -43,7 +40,7 @@ LOCAL_PROVIDERS = {"ollama"}
 LOCAL_ONLY_MAX_CRITERIA = 5
 # Offers per triage call, by model ("provider:model"), else by provider, of the model that answers
 # (a batch passed to the next model of the chain is split again with that model's size)
-TRIAGE_BATCH_SIZE = {"gemini:gemma-4-31b-it": 10, "gemini": 25, "mistral": 25, "ollama": 10, "default": 10}
+TRIAGE_BATCH_SIZE = {"gemini": 25, "mistral": 25, "ollama": 10, "default": 10}
 OLLAMA_THINK = False     # qwen3 reasoning ("thinking"): slower; off by default
 OLLAMA_NUM_CTX = 24576   # context size in tokens; fits a 30000-character page in 11 GB of VRAM
 
