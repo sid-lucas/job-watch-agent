@@ -14,7 +14,7 @@ pip install -r requirements.txt
 playwright install chromium
 ```
 
-Personal settings (target companies, aliases, company domains, dealbreakers and bonuses):
+Personal settings (target companies, aliases, company domains, profile, criteria, kept triage domains):
 
 ```bash
 cp user_config.example.py user_config.py
@@ -27,20 +27,20 @@ API keys go in a `.env` file at the project root (not committed):
 ```
 SERPER_API_KEY=...
 GEMINI_API_KEY=...
-MISTRAL_API_KEY=...     # optional: Mistral is skipped in the LLM chain without it
+MISTRAL_API_KEY=...     # optional: Mistral is disabled in MODEL_CHAIN by default (no free tier)
 ```
 
 ## Project structure
 
 ```
 job_watch/              application code (package)
-  offers/               V1 pipeline: RSS and career sites -> filter -> flags -> SQLite (offers, listed_offers)
+  offers/               V1 pipeline: RSS and career sites -> triage -> criteria -> score -> SQLite (offers, listed_offers)
   list_agent/           V1.2 career sites: list agent (LangGraph), offer extraction, detail phase
   registry/             V1.1 career sites registry (storage, resolution rules, verification)
   judges/               LLM judges (career pages, offers)
   web/                  web access (robots.txt, fetching), headless browser, web search
   config.py, llm.py     technical settings, shared LLM client
-scripts/                entry points for registry building and maintenance, rescoring, comparisons
+scripts/                entry points for registry building and maintenance, rescoring, model checks
 evals/                  evaluations that call a real LLM (page judge test set)
 docs/                   design notes
 data/                   local database and registry (not committed)
@@ -60,15 +60,16 @@ python main.py --sources rss           # RSS feed only
 python main.py --sources career_sites --companies "Lombard Odier,ICRC"   # some registry companies only
 python main.py --db /tmp/try.db --registry /tmp/registry.json            # another database and registry
 LLM_ONLY=ollama python main.py ...     # local model only (Gemini quota exhausted)
+python -u -m scripts.check_model gemini:MODEL   # structured output and tool calling of one model, before enabling it
 ```
 
 Career sites (V1.2): for each registry company with status `ok`, an LLM agent walks the job list
 (pagination and cookie banners only, guardrails in code), the code extracts and checks the offers and
-stores every listed offer in `listed_offers`. New offers are triaged (domain, kind of IT job), the
-dealbreakers known from the list are applied, the pages of the kept ones are opened (fact sheet:
-city, seniority, experience, languages, contract, degree...), then every offer, RSS included, is
-judged by the same rules and stored in `offers`, rejected ones with their reasons. The titles set
-aside before the detail are listed at the end of the run. One company at a time, nothing written:
+stores every listed offer in `listed_offers`. New offers are triaged by domain, then the criteria of
+`user_config.py` are answered on the listing data (a reject sets the offer aside), the pages of the
+kept ones are opened and the criteria answered again on the page, then every offer, RSS included, is
+scored by the same criteria and stored in `offers`, rejected ones with their reasons and quotes. The
+titles set aside before the detail are listed at the end of the run. One company at a time, nothing written:
 `python -u -m scripts.collect_career_site COMPANY URL --db /tmp/try.db --details`.
 
 Career sites registry, in order:
@@ -84,7 +85,7 @@ python -m scripts.add_registry_entry "COMPANY" URL   # add a known job list (rob
 `python -m evals.check_page_judge` runs the judge on pages verified by hand.
 
 Companies, aliases, your profile and your criteria (`PROFILE`, `CRITERIA`, `CODE_CRITERIA`) are set in `user_config.py`; see `user_config.example.py`. They are checked at startup: a problem stops the program with a message naming the criterion.
-`python -m scripts.rescore [--db PATH] [--dry-run]` applies changed rules to the stored offers, without any LLM call.
+`python -m scripts.rescore [--db PATH] [--dry-run]` applies changed settings to the stored answers, without any LLM call; `--ask` asks again the offers whose questions changed (`--ask --dry-run` counts the calls first).
 
 ## Ideas
 
@@ -96,8 +97,8 @@ Companies, aliases, your profile and your criteria (`PROFILE`, `CRITERIA`, `CODE
 - Remove offers already seen
 
 ### Scoring
-- The LLM states facts (domain, kind of IT job, seniority, languages, contract...), checked in code; it never scores
-- The code applies the user's dealbreakers and bonuses to these facts, with the reasons shown
+- The LLM answers the user's questions with a quote of the ad, checked in code; it never scores
+- The code applies the rejects and points of each question, with the reasons and quotes shown
 - Matching against local documents (CV, letters, transcripts) with a local LLM only
 - Score with the reasons behind it
 
@@ -119,7 +120,7 @@ Companies, aliases, your profile and your criteria (`PROFILE`, `CRITERIA`, `CODE
 ## Roadmap
 
 ```
-Sources (career sites, RSS, e-mails) → filter → merge duplicates → flags → verify → AI matching → save → notify → human review
+Sources (career sites, RSS, e-mails) → filter → merge duplicates → criteria → verify → AI matching → save → notify → human review
 ```
 
 - **V1 (done):** swissdevjobs RSS, deduplication, rules and score, SQLite storage
