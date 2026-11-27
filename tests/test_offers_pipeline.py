@@ -299,6 +299,40 @@ def test_rescore_applies_new_settings_without_any_llm(criteria, monkeypatch):
     assert report.offers_not_rescored == 1 and report.listed_not_rescored == 1 and not report.offer_changes
 
 
+def test_rescore_asks_again_only_what_has_no_answers_to_the_current_questions(criteria, monkeypatch):
+    from helpers import criteria_settings
+    from job_watch import config
+    from job_watch.list_agent.collect import keep
+    from job_watch.offers.listed import connect as connect_listed, save_listed_offers
+    from job_watch.offers.nodes import save_results, score_offers
+    from job_watch.offers.rescore import rescore, to_ask
+    from job_watch.offers.scoring import screen_listed
+    save_results({"offers": score_offers({"offers": [{**rss_offer("https://x.example/1", "SOC Analyst"),
+                                                     "domain": "Technology/IT"}]})["offers"]})
+    old = listed("b", "Senior SOC Engineer")
+    old.domain = "Technology/IT"
+    screen_listed(old, "Bank")
+    hr = listed("c", "HR Partner")
+    hr.domain, hr.rejected_by = "HR, legal & administration", ["rejected: domain not kept | 'HR'"]
+    conn = connect_listed()
+    save_listed_offers(conn, "Bank", [old, hr], "2026-11-27", keep=keep)
+    conn.close()
+    assert to_ask() == (0, 0)
+
+    # A question added: every answer is outdated; the domain set aside is never asked
+    monkeypatch.setattr(config, "SETTINGS", criteria_settings([*CRITERIA, {"ask": "Is it remote?", "points": 5}]))
+    criteria.settings = config.SETTINGS
+    assert to_ask() == (1, 1)
+    calls = len(criteria.prompts)
+    with pytest.raises(ValueError):
+        rescore(write=False, ask_missing=True)                                  # asking always writes
+    report = rescore(ask_missing=True)
+    assert (report.offers_asked, report.listed_asked) == (1, 1) and len(criteria.prompts) == calls + 2
+    assert report.offers_not_rescored == report.listed_not_rescored == 0
+    assert to_ask() == (0, 0)                                                   # answers stored
+    assert rescore(ask_missing=True).offers_asked == 0 and len(criteria.prompts) == calls + 2
+
+
 def test_rescore_dry_run_writes_nothing(criteria, monkeypatch):
     from helpers import criteria_settings
     from job_watch import config

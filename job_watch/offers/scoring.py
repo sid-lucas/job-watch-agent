@@ -123,5 +123,13 @@ def stored_asked(offer: dict) -> Asked | None:
                  criteria_model=offer.get("criteria_model") or "", full_ad=bool(offer.get("full_ad")))
 
 
+def full_ad_of(offer: dict) -> bool:
+    """Whether the stored description is the whole ad: as stored with the answers, else a career-site
+    page text (an RSS description is not known to be the whole ad)."""
+    if offer.get("criteria_questions"):
+        return bool(offer.get("full_ad"))
+    return offer.get("source") == "career_site" and bool(offer.get("description"))
+
+
 def offer_verdict(offer: dict, today: date | None = None) -> Verdict | None:
     return verdict(offer_query(offer), stored_asked(offer), offer.get("domain"), posted_date(offer), today)
