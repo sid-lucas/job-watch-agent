@@ -61,6 +61,8 @@ OLLAMA_NUM_CTX = 24576   # context size in tokens; fits a 30000-character page i
 # Matching against the profile (step 2): personal data, local models only. llm.local_models() stops
 # the program if this chain holds a cloud model. The profile is read only at run time, on this computer.
 PROFILE_PATH = BASE_DIR / "data" / "personal" / "profile.md"
+# Answers of the matching (quotes of the profile: personal data), never in offers.db
+MATCH_DB_PATH = BASE_DIR / "data" / "personal" / "matching.db"
 MATCH_CHAIN = [
     ("ollama", "qwen3:8b", True),
 ]
@@ -73,6 +75,9 @@ MATCH_THINK = True
 MATCH_TIMEOUT = 180
 MATCH_DRAFT_MAX_TOKENS = 6000       # call 1/2: reasoning and free-text draft
 MATCH_FORMAT_MAX_TOKENS = 3000      # call 2/2: the list in the schema
+# Comparison of the requirements with the profile (brick 2): one call per offer, reasoning on
+MATCH_COMPARE_TIMEOUT = 300
+MATCH_COMPARE_MAX_TOKENS = 10000
 
 # Web access
 USER_AGENT = "job-watch/0.1 (personal job search project)"
