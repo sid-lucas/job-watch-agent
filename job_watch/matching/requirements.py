@@ -26,7 +26,7 @@ from pydantic import BaseModel, ConfigDict, Field, ValidationError
 
 from job_watch import config
 from job_watch.list_agent.tools import _untrusted
-from job_watch.llm import (LocalCallFailed, call_with_retry, calls_since, llm_chain, local_call, model_calls,
+from job_watch.llm import (LocalCallFailed, attempts_logged, calls_since, llm_chain, local_call, model_calls,
                            only_local_left, structured_llm)
 from job_watch.offers import storage
 from job_watch.offers.ask_criteria import OfferInput, ad_text, checked_text
@@ -285,15 +285,18 @@ def extract_requirements(offer: OfferInput, log: Callable[[str], None] | None = 
     offer_prompt, text = _offer_prompt(offer), checked_text(offer)
     cloud = tuple((p, m) for p, m in llm_chain(chain) if p not in config.LOCAL_PROVIDERS)
     if cloud and not only_local_left(chain):
-        log("call started (REQUIREMENTS_CHAIN)")
-        before, start = model_calls(), time.monotonic()
-        reply = call_with_retry(structured_llm(Requirements, cloud, config.REQUIREMENTS_TIMEOUT).invoke,
-                                [("system", RULES), ("user", offer_prompt)])
-        if reply is not None:
+        # One pass on the cloud models (no second pass of the whole chain): each attempt gets a line,
+        # and when every one failed the local fallback answers at once
+        before = model_calls()
+        try:
+            with attempts_logged(log):
+                reply = structured_llm(Requirements, cloud, config.REQUIREMENTS_TIMEOUT).invoke(
+                    [("system", RULES), ("user", offer_prompt)])
+        except Exception as error:      # any provider error, after every cloud model was tried
+            log(f"every cloud model failed ({type(error).__name__}): local model")
+        else:
             model = next((name for name in calls_since(before) if " " not in name), "")
-            log(f"call done in {time.monotonic() - start:.0f}s | {model}")
             return _checked(_raw_items(reply), model, text)
-        log("every cloud model failed: local model")
     if not _local_models(chain):
         return Extraction(requirements=[], dropped=[], failure="error (every model failed)")
     try:

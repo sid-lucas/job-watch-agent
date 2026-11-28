@@ -49,13 +49,14 @@ def fake_cloud(monkeypatch, reply):
     class Chain:
         def invoke(self, messages):
             seen.append(messages)
+            if reply is None:
+                raise RuntimeError("every cloud model failed")
             return reply
     def structured(schema, models, timeout=None):
         seen.append(models)
         seen.append(timeout)
         return Chain()
     monkeypatch.setattr(req, "structured_llm", structured)
-    monkeypatch.setattr(req, "call_with_retry", lambda func, *args: func(*args))
     return seen
 
 
@@ -71,11 +72,12 @@ def test_public_ad_goes_to_the_cloud_models_in_one_structured_call(monkeypatch):
 
 
 def test_every_cloud_model_failed_falls_back_to_the_local_model(monkeypatch):
-    fake_cloud(monkeypatch, None)
+    cloud = fake_cloud(monkeypatch, None)            # one pass on the cloud chain, no second one
     local = fake_calls(monkeypatch, [item("Strong Python skills", "Python")])
     monkeypatch.setattr(req, "llm_chain", lambda chain=None: [("gemini", "g"), *LOCAL_ONLY])
     assert [r.label for r in req.extract_requirements(OFFER).requirements] == ["Python"]
     assert len(local) == 2 and local[0]["chain"] == [("ollama", "qwen3:8b", True)]
+    assert [m for m in cloud if isinstance(m, list)] and len([m for m in cloud if isinstance(m, list)]) == 1
 
 
 def test_the_requirements_use_their_own_chain_most_capable_models_first():

@@ -1,12 +1,15 @@
 """Shared LLM access. Public web data: the models of config.MODEL_CHAIN in order, cloud models first,
 a local model as last resort. Personal data (the profile, the matching): only through local_call
 on config.MATCH_CHAIN, checked to hold local models only."""
+from contextlib import contextmanager
+from contextvars import ContextVar
 import logging
 import os
 import re
 import threading
 import time
 from collections import Counter
+from collections.abc import Callable
 from functools import cache
 from typing import Literal
 
@@ -71,7 +74,25 @@ RATE_LIMIT_DEFAULT_WAIT = 20    # seconds, when the error gives no retry delay
 _unavailable: dict[str, str] = {}
 _sleep = time.sleep             # replaced in tests
 
-FailureKind = Literal["per_minute", "daily", "unknown_quota", "auth", "other"]
+FailureKind = Literal["per_minute", "daily", "unknown_quota", "auth", "overloaded", "other"]
+
+# A model overloaded (503, 504) this many times in a run is skipped for the rest of it
+OVERLOADED_SKIP_AFTER = 2
+_overloaded: Counter[str] = Counter()
+
+# Optional line per attempt of a model of a chain ("trying ...", "done in 3s", "failed (504) after
+# 90s, next model"), set by the caller around one call (attempts_logged)
+_attempt_log: ContextVar[Callable[[str], None] | None] = ContextVar("attempt_log", default=None)
+
+
+@contextmanager
+def attempts_logged(log: Callable[[str], None] | None):
+    """Within this block, each attempt of a model of a chain is reported to log."""
+    token = _attempt_log.set(log)
+    try:
+        yield
+    finally:
+        _attempt_log.reset(token)
 
 
 class ModelSkipped(Exception):
@@ -120,8 +141,10 @@ def classify_failure(error: BaseException) -> tuple[FailureKind, float | None]:
 
     per_minute: wait, then the same model again. daily: quota spent for the day (or month), skip
     the model for the run. auth: key refused (401, 403) or payment required (402: no free tier
-    active), skip. unknown_quota: a 429 that cannot be read. other: timeout, overload, bad
-    answer... the next model takes this call only.
+    active), skip. unknown_quota: a 429 that cannot be read. overloaded: 503 or 504 (model busy,
+    deadline expired): the next model takes this call, and the model is skipped for the run after
+    OVERLOADED_SKIP_AFTER of them. other: client timeout, bad answer... the next model takes this
+    call only.
     """
     if any(isinstance(e, (ModelAuthenticationError, ModelPermissionDeniedError)) for e in _error_chain(error)):
         return "auth", None
@@ -129,6 +152,9 @@ def classify_failure(error: BaseException) -> tuple[FailureKind, float | None]:
     if (any(402 in (getattr(e, "code", None), getattr(e, "status_code", None)) for e in _error_chain(error))
             or re.search(r"\b402\b|payment required", text, re.IGNORECASE)):
         return "auth", None
+    if (any({503, 504} & {getattr(e, "code", None), getattr(e, "status_code", None)} for e in _error_chain(error))
+            or re.search(r"\b50[34]\b|UNAVAILABLE|DEADLINE_EXCEEDED", text)):
+        return "overloaded", None
     rate_limited = (any(isinstance(e, ModelRateLimitError) for e in _error_chain(error))
                     or any(getattr(e, "code", None) == 429 for e in _error_chain(error))
                     or "RESOURCE_EXHAUSTED" in text or re.search(r"\b429\b", text) is not None)
@@ -143,32 +169,64 @@ def classify_failure(error: BaseException) -> tuple[FailureKind, float | None]:
     return "unknown_quota", _retry_delay(error)
 
 
+def _error_label(error: BaseException) -> str:
+    """Short name of a failure for the attempt lines: the HTTP code when there is one, else the type."""
+    for item in _error_chain(error):
+        for name in ("code", "status_code"):
+            code = getattr(item, name, None)
+            if isinstance(code, int) and 400 <= code < 600:
+                return str(code)
+    found = re.search(r"\b([45]\d\d)\b", str(error))
+    return found.group(1) if found else type(error).__name__
+
+
 def _guarded(name: str, runnable: Runnable) -> Runnable:
     """One model of the chain, with the rate-limit policy of classify_failure()."""
+    shown = name.split(":", 1)[-1]
 
     def call(value, config):
         attempts = 0
+        log = _attempt_log.get()
         while True:
             with _calls_lock:
                 if name in _unavailable:
                     _calls[f"{name} skipped"] += 1
+                    if log:
+                        log(f"{shown} skipped ({_unavailable[name]} for this run)")
                     raise ModelSkipped(f"{name} unavailable for this run ({_unavailable[name]})")
+            if log:
+                log(f"trying {shown}...")
+            start = time.monotonic()
             try:
-                return runnable.invoke(value, config)
+                result = runnable.invoke(value, config)
             except Exception as error:
                 kind, delay = classify_failure(error)
+                took = f"after {time.monotonic() - start:.0f}s"
+                if kind == "overloaded":
+                    with _calls_lock:
+                        _overloaded[name] += 1
+                        if _overloaded[name] >= OVERLOADED_SKIP_AFTER:
+                            _unavailable[name] = "overloaded"
                 if kind in ("daily", "auth") or (kind == "unknown_quota" and attempts >= 1):
                     with _calls_lock:
                         _unavailable[name] = kind
-                    raise
                 retries = RATE_LIMIT_RETRIES if kind == "per_minute" else 1
                 wait = RATE_LIMIT_DEFAULT_WAIT if delay is None else delay
-                if kind == "other" or attempts >= retries or wait > RATE_LIMIT_MAX_WAIT:
+                if (kind in ("daily", "auth", "overloaded", "other") or name in _unavailable
+                        or attempts >= retries or wait > RATE_LIMIT_MAX_WAIT):
+                    if log:
+                        log(f"{shown} failed ({_error_label(error)}) {took}, next model")
                     raise
                 attempts += 1
                 with _calls_lock:
                     _calls[f"{name} waited"] += 1
+                if log:
+                    log(f"{shown} rate limited ({_error_label(error)}), waiting {wait:.0f}s")
                 _sleep(wait)
+                continue
+            if log:
+                log(f"{shown} done in {time.monotonic() - start:.0f}s")
+            return result
 
     return RunnableLambda(call, name=f"guarded[{name}]")
 
