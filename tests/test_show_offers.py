@@ -36,3 +36,27 @@ def test_script_prints_the_top_in_the_main_format(tmp_path, monkeypatch, capsys)
     assert out.startswith("2 kept offers with score >= 0, the best 1:\n\n  40  Job b @ Bank  [career_site]\n"
                           "      SOC (+40): 'SOC'\n      Location: Geneva\n            List:   -")
     assert "Job a" not in out and out.endswith("\n... and 1 more (--top)\n")
+
+
+def test_by_match_sorts_by_match_percent_and_shows_it(tmp_path, monkeypatch, capsys):
+    from job_watch.matching import store
+    from scripts import show_offers
+    monkeypatch.setattr(config, "DB_PATH", tmp_path / "offers.db")
+    monkeypatch.setattr(config, "MATCH_DB_PATH", tmp_path / "personal" / "matching.db")
+    storage.save_offers([_offer("a", "Bank", 50, "2026-11-01"), _offer("b", "Bank", 40, "2026-11-02"),
+                         _offer("c", "Bank", 30, "2026-11-03")])
+    store.save("Bank", "b", {}, "m", "p", 80.0, [])
+    store.save("Bank", "c", {}, "m", "p", 60.0, ["German B2: missing"])
+    show_offers.main(["--by-match", "--min-score", "0"])
+    out = capsys.readouterr().out
+    assert out.index("Job b") < out.index("Job c") < out.index("Job a")
+    assert "Match: 80%" in out and "Match: 60% | BLOCKING: German B2: missing" in out and "Match: not matched" in out
+
+
+def test_without_by_match_no_matching_database_is_opened(tmp_path, monkeypatch, capsys):
+    from scripts import show_offers
+    monkeypatch.setattr(config, "DB_PATH", tmp_path / "offers.db")
+    monkeypatch.setattr(config, "MATCH_DB_PATH", tmp_path / "personal" / "matching.db")
+    storage.save_offers([_offer("a", "Bank", 50, "2026-11-01")])
+    show_offers.main([])
+    assert "Match" not in capsys.readouterr().out and not (tmp_path / "personal").exists()

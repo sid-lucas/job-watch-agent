@@ -78,6 +78,19 @@ MATCH_FORMAT_MAX_TOKENS = 3000      # call 2/2: the list in the schema
 # Comparison of the requirements with the profile (brick 2): one call per offer, reasoning on
 MATCH_COMPARE_TIMEOUT = 300
 MATCH_COMPARE_MAX_TOKENS = 10000
+# Sections of the profile that may prove a requirement, by category (names as in the profile titles,
+# without number, accents or case); a category not listed accepts every section. "experience_years":
+# an experience requirement with min_years. A line of another section: the verdict becomes unknown.
+MATCH_SECTIONS = {
+    "language": ("langues",),
+    "education": ("formation",),
+    "certification": ("resume",),
+    "experience_years": ("resume", "experience professionnelle"),
+}
+# Match score (brick 3): sum(weight x value) / sum(weight), in percent
+MATCH_WEIGHTS = {"must": 2, "nice": 1, "soft_skill": 0.25}     # soft_skill: whatever its kind
+MATCH_VALUES = {"covered": 1, "partial": 0.5, "missing": 0, "unknown": 0.25}
+MATCH_BLOCKING_YEARS_MARGIN = 1     # min_years above the total experience + this: a blocking gap
 
 # Web access
 USER_AGENT = "job-watch/0.1 (personal job search project)"

@@ -10,6 +10,10 @@ def search_link(offer: dict) -> str:
 def print_offer(offer: dict) -> None:
     """Score, title, reasons with their quotes, location and links of one offer."""
     print(f"\n{offer['score']:4d}  {offer['title']} @ {offer['company']}  [{offer['source']}]")
+    if "match" in offer:                    # scripts/show_offers.py --by-match
+        match = "not matched" if offer["match"] is None else f"{offer['match']:.0f}%"
+        blocking = f" | BLOCKING: {'; '.join(offer['blocking'])}" if offer.get("blocking") else ""
+        print(f"      Match: {match}{blocking}")
     for reason in offer["reasons"]:
         print(f"      {reason}")
     if offer.get("location") and offer["location"] != "unknown":

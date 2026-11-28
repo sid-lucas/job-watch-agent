@@ -6,12 +6,14 @@ first, then the most recently first seen.
     python -m scripts.show_offers                          # top 25, score >= MIN_SCORE
     python -m scripts.show_offers --top 50 --min-score 0
     python -m scripts.show_offers --company "Lombard Odier" --source career_site
+    python -m scripts.show_offers --by-match               # best match first (scripts/match_offers.py)
 """
 import argparse
 from pathlib import Path
 
 from job_watch import config
 from job_watch.offers import storage
+from job_watch.matching.store import scores
 from job_watch.offers.display import print_offer
 
 
@@ -22,6 +24,8 @@ def main(argv: list[str] | None = None) -> None:
     parser.add_argument("--min-score", type=int, default=config.MIN_SCORE,
                         help=f"lowest score shown (default: MIN_SCORE, {config.MIN_SCORE})")
     parser.add_argument("--source", help="career_site, or an RSS source name")
+    parser.add_argument("--by-match", action="store_true",
+                        help="sort by match percent (offers not matched last), show it")
     parser.add_argument("--db", type=Path, help=f"database file (default: {config.DB_PATH})")
     args = parser.parse_args(argv)
     if args.top < 1:
@@ -30,6 +34,12 @@ def main(argv: list[str] | None = None) -> None:
         config.DB_PATH = args.db
 
     offers = storage.kept_offers(company=args.company, min_score=args.min_score, source=args.source)
+    if args.by_match:
+        matched = scores()
+        for offer in offers:
+            offer["match"], offer["blocking"] = matched.get((offer["company"], offer["key"]), (None, []))
+        offers.sort(key=lambda o: o["match"] is None)                       # stable: score order kept
+        offers.sort(key=lambda o: -(o["match"] or 0))
     print(f"{len(offers)} kept offers with score >= {args.min_score}"
           + (f" at {args.company}" if args.company else "") + (f" from {args.source}" if args.source else "")
           + (f", the best {args.top}:" if len(offers) > args.top else ":" if offers else "."))
