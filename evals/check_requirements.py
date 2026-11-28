@@ -10,7 +10,8 @@ check when the instructions change: it measures the new output against the froze
     python -u -m evals.check_requirements --model gemini:gemini-3.5-flash-lite
     python -u -m evals.check_requirements --freeze --force --case infomaniak-ai-engineer
 
-Measures: must requirements found (recall), kind correct (on the requirements found), alternatives
+Measures: must requirements found (recall), also without the soft skills (they weigh little in
+the matching: the real gaps are the others), kind correct (on the requirements found), alternatives
 grouped (an expected requirement with options found as one requirement with options), min_years
 equal; extra requirements are counted, not judged.
 """
@@ -55,6 +56,7 @@ def pair(expected: list[dict], got: list[Requirement]) -> list[tuple[dict, Requi
 class Score:
     def __init__(self):
         self.must = self.must_found = self.found = self.kind_ok = 0
+        self.hard = self.hard_found = 0         # must requirements other than soft skills
         self.options = self.options_ok = self.years = self.years_ok = self.extra = 0
 
     def add(self, expected: list[dict], got: list[Requirement]) -> "Score":
@@ -62,6 +64,9 @@ class Score:
         for wanted, found in pairs:
             self.must += wanted["kind"] == "must"
             self.must_found += wanted["kind"] == "must" and found is not None
+            hard = wanted["kind"] == "must" and wanted["category"] != "soft_skill"
+            self.hard += hard
+            self.hard_found += hard and found is not None
             if found is None:
                 continue
             self.found += 1
@@ -82,7 +87,8 @@ class Score:
     def line(self) -> str:
         def part(ok, total):
             return f"{ok}/{total}" if total else "-"
-        return (f"must found {part(self.must_found, self.must)}, kind {part(self.kind_ok, self.found)}, "
+        return (f"must found {part(self.must_found, self.must)} (without soft skills "
+                f"{part(self.hard_found, self.hard)}), kind {part(self.kind_ok, self.found)}, "
                 f"alternatives {part(self.options_ok, self.options)}, min_years {part(self.years_ok, self.years)}, "
                 f"extra {self.extra}")
 
@@ -130,7 +136,8 @@ def measure(cases: list[dict], chain: list) -> None:
         print(f"{case['id'][:44]:44} {score.line()} | {extraction.model}")
         for wanted, found in pair(expected["requirements"], extraction.requirements):
             if found is None and wanted["kind"] == "must":
-                print(f"      missing must: {wanted['label']}")
+                soft = " (soft skill)" if wanted["category"] == "soft_skill" else ""
+                print(f"      missing must: {wanted['label']}{soft}")
             elif found is not None and found.kind != wanted["kind"]:
                 print(f"      kind {found.kind} instead of {wanted['kind']}: {wanted['label']}")
     stale = {c["expected"]["prompt_id"] for c in cases if c.get("expected")} - {PROMPT_ID}

@@ -34,8 +34,12 @@ def test_score_counts_recall_kind_alternatives_years_and_extras():
         req("Team player", "You are a team player", category="soft_skill")]]          # not expected
     score = Score().add(EXPECTED, got)
     assert (score.must_found, score.must) == (2, 3)          # Spring missing
+    assert (score.hard_found, score.hard) == (2, 3)
     assert (score.kind_ok, score.found) == (3, 4)
     assert (score.options_ok, score.options) == (0, 1)
     assert (score.years_ok, score.years) == (0, 1)
     assert score.extra == 1
-    assert score.line() == "must found 2/3, kind 3/4, alternatives 0/1, min_years 0/1, extra 1"
+    assert score.line() == ("must found 2/3 (without soft skills 2/3), kind 3/4, alternatives 0/1, min_years 0/1, "
+                            "extra 1")
+    soft = Score().add([req("Rigor", "You are rigorous", category="soft_skill")], [])
+    assert (soft.must, soft.hard) == (1, 0) and "without soft skills -" in soft.line()
