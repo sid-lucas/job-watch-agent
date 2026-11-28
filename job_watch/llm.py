@@ -1,6 +1,6 @@
 """Shared LLM access. Public web data: the models of config.MODEL_CHAIN in order, cloud models first,
-a local model as last resort. Personal data (the profile): only through local_structured_llm and
-local_text_llm, whose chain (config.MATCH_CHAIN) is checked to hold local models only."""
+a local model as last resort. Personal data (the profile): only through local_call, whose chain
+(config.MATCH_CHAIN) is checked to hold local models only."""
 import logging
 import os
 import re
@@ -192,8 +192,9 @@ def calls_since(before: dict[str, int]) -> dict[str, int]:
             if count - before.get(name, 0)}
 
 
-def _client(provider: str, model: str, think: bool | None = None):
-    """think: reasoning of a local model (None: config.OLLAMA_THINK)."""
+def _client(provider: str, model: str, think: bool | None = None, max_tokens: int | None = None):
+    """think: reasoning of a local model (None: config.OLLAMA_THINK). max_tokens: limit of the
+    generated tokens of a local model, reasoning included (None: no limit)."""
     counter = [_CallCounter(f"{provider}:{model}")]
     if provider == "gemini":
         return ChatGoogleGenerativeAI(model=model, google_api_key=os.environ["GEMINI_API_KEY"],
@@ -205,7 +206,7 @@ def _client(provider: str, model: str, think: bool | None = None):
         # Reasoning off by default (config.OLLAMA_THINK): slower, and not always compatible with structured output
         think = config.OLLAMA_THINK if think is None else think
         return ChatOllama(model=model, num_ctx=config.OLLAMA_NUM_CTX, temperature=0, reasoning=think,
-                          client_kwargs={"timeout": OLLAMA_TIMEOUT}, callbacks=counter)
+                          num_predict=max_tokens, client_kwargs={"timeout": OLLAMA_TIMEOUT}, callbacks=counter)
     raise ValueError(f"Unknown LLM provider: {provider}")
 
 
@@ -271,20 +272,54 @@ def local_models(chain: list[tuple[str, str, bool]]) -> tuple[tuple[str, str], .
     return models
 
 
-@cache
-def _local_chain(schema, think: bool, models: tuple[tuple[str, str], ...]):
-    return _chain([(f"{p}:{m}", _client(p, m, think).with_structured_output(schema) if schema
-                    else _client(p, m, think)) for p, m in models])
+class LocalCallFailed(Exception):
+    """A local call that gave no usable answer: reason "timeout", "too long" or "error (...)"."""
+
+    def __init__(self, reason: str):
+        super().__init__(reason)
+        self.reason = reason
 
 
-def local_structured_llm(schema, think: bool):
-    """Local models of config.MATCH_CHAIN returning the Pydantic schema (checked on every call)."""
-    return _local_chain(schema, think, local_models(config.MATCH_CHAIN))
+_monotonic = time.monotonic     # replaced in tests
 
 
-def local_text_llm(think: bool):
-    """Local models of config.MATCH_CHAIN answering free text (an AIMessage; checked on every call)."""
-    return _local_chain(None, think, local_models(config.MATCH_CHAIN))
+def local_call(messages: list, max_tokens: int, timeout: float, think: bool = False,
+               schema: type | None = None) -> tuple[str, str]:
+    """Text of the answer of the first local model of config.MATCH_CHAIN that answers, and its name.
+
+    The answer is read as a stream, against a deadline checked at every piece: the timeout of the
+    HTTP client only counts the time between two pieces, so a model that keeps reasoning never hit
+    it. Past the deadline the stream is closed (Ollama stops generating) and the call fails with
+    "timeout"; an answer cut by max_tokens (reasoning included) fails with "too long". Both end the
+    call: the next model would take as long. Other errors pass to the next model of the chain.
+    schema: a Pydantic model whose JSON schema constrains the answer (the caller validates it).
+    """
+    failure = LocalCallFailed("error (no model)")
+    for provider, model in local_models(config.MATCH_CHAIN):
+        name = f"{provider}:{model}"
+        options = {"format": schema.model_json_schema()} if schema else {}
+        deadline = _monotonic() + timeout
+        parts, done_reason, stream = [], None, None
+        try:
+            stream = _client(provider, model, think, max_tokens).stream(messages, **options)
+            for chunk in stream:
+                if isinstance(chunk.content, str):
+                    parts.append(chunk.content)
+                done_reason = (chunk.response_metadata or {}).get("done_reason") or done_reason
+                if _monotonic() > deadline:
+                    raise LocalCallFailed("timeout")
+        except LocalCallFailed:
+            raise
+        except Exception as error:      # any provider error; the type is kept so bugs stay visible
+            failure = LocalCallFailed(f"error ({type(error).__name__})")
+            continue
+        finally:
+            if stream is not None and hasattr(stream, "close"):
+                stream.close()
+        if done_reason == "length":
+            raise LocalCallFailed("too long")
+        return "".join(parts), name        # counted by the client's _CallCounter
+    raise failure
 
 
 def call_with_retry(func, *args, attempts: int = 2, wait_seconds: int = 5):

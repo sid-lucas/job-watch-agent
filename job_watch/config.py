@@ -53,6 +53,11 @@ MATCH_CHAIN = [
 # lists (empty once, several requirements merged); so with MATCH_THINK, one call reasons in free
 # text, a second call without reasoning only puts that draft in the schema.
 MATCH_THINK = True
+# Limits of each local call of the matching: the stream is closed past the deadline (seconds), and
+# the generated tokens are capped (reasoning included). Either one: the offer fails, the next one goes.
+MATCH_TIMEOUT = 180
+MATCH_DRAFT_MAX_TOKENS = 6000       # call 1/2: reasoning and free-text draft
+MATCH_FORMAT_MAX_TOKENS = 3000      # call 2/2: the list in the schema
 
 # Web access
 USER_AGENT = "job-watch/0.1 (personal job search project)"

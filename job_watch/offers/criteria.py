@@ -67,6 +67,13 @@ class _Effect(BaseModel):
         return self
 
 
+def cut_between_words(text: str, limit: int) -> str:
+    """The text, or its start cut between two words with "…" (at most limit + 1 characters)."""
+    if len(text) <= limit:
+        return text
+    return text[:limit].rsplit(" ", 1)[0].rstrip(",;:") + "…"
+
+
 class Criterion(_Effect):
     """A question answered by the LLM with yes / no / unknown and a quote of the ad."""
     ask: str = Field(min_length=1)
@@ -80,7 +87,7 @@ class Criterion(_Effect):
             return self.label
         if len(self.ask) <= MAX_LABEL_CHARS:
             return self.ask
-        return self.ask[:MAX_LABEL_CHARS].rsplit(" ", 1)[0].rstrip(",;:") + "…"      # cut between words
+        return cut_between_words(self.ask, MAX_LABEL_CHARS)
 
     @model_validator(mode="after")
     def absence_gives_points(self):

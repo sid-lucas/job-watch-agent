@@ -38,17 +38,18 @@ def main(argv: list[str] | None = None) -> None:
     else:
         offers = storage.kept_offers(min_score=config.MIN_SCORE)[:args.top]
     print(f"{len(offers)} offer(s), models {', '.join(f'{p}:{m}' for p, m in models)}, "
-          f"reasoning {'on (2 calls per offer)' if config.MATCH_THINK else 'off'}")
+          f"reasoning {'on (2 calls per offer)' if config.MATCH_THINK else 'off'}, "
+          f"at most {config.MATCH_TIMEOUT}s per call")
     for offer in offers:
         print(f"\n#{offer['id']}  {offer['score']}  {offer['title']} @ {offer['company']}  [{offer['source']}]")
         if not (offer.get("description") or "").strip():
             print("      no ad text stored: nothing to extract")
             continue
         start = time.monotonic()
-        extraction = extract_requirements(offer_query(offer))
+        extraction = extract_requirements(offer_query(offer), log=lambda line: print(f"      {line}", flush=True))
         took = f"{time.monotonic() - start:.0f}s"
-        if extraction.failed:
-            print(f"      every model failed ({took})")
+        if extraction.failure:
+            print(f"      failed ({extraction.failure}) after {took}: next offer")
             continue
         print(f"      {len(extraction.requirements)} requirements, {len(extraction.dropped)} dropped"
               f" | {extraction.model} {took}")
