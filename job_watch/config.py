@@ -43,6 +43,17 @@ TRIAGE_BATCH_SIZE = {"gemini": 25, "mistral": 25, "ollama": 10, "default": 10}
 OLLAMA_THINK = False     # qwen3 reasoning ("thinking"): slower; off by default
 OLLAMA_NUM_CTX = 24576   # context size in tokens; fits a 30000-character page in 11 GB of VRAM
 
+# Matching against the profile (step 2): personal data, local models only. llm.local_models() stops
+# the program if this chain holds a cloud model. The profile is read only at run time, on this computer.
+PROFILE_PATH = BASE_DIR / "data" / "personal" / "profile.md"
+MATCH_CHAIN = [
+    ("ollama", "qwen3:8b", True),
+]
+# Reasoning for the matching tasks. With structured output in the same call, qwen3 gave unstable
+# lists (empty once, several requirements merged); so with MATCH_THINK, one call reasons in free
+# text, a second call without reasoning only puts that draft in the schema.
+MATCH_THINK = True
+
 # Web access
 USER_AGENT = "job-watch/0.1 (personal job search project)"
 MAX_PAGE_CHARS = 8000   # page text is truncated to this size

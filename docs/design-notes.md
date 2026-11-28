@@ -152,6 +152,14 @@ Known limitations:
 - When only local models are left for the run, at most `LOCAL_ONLY_MAX_CRITERIA` offers are still answered by the criteria; the others are deferred: not stored (RSS offers, listed offers, offer pages), so they stay new and are asked on the next run. The local model is slower and weaker on the criteria; mixing a few of its answers is accepted. Each offer asked prints one line (progress, model, duration).
 - Local model measured with the judge eval: 9/10, but it can wrongly answer `owner=no` (stops link following) and infer missing locations. Good enough for extraction, weaker as a judge.
 
+## Matching against the profile (step 2, in progress)
+
+- Question of step 1: does the offer suit me (criteria, score)? Question of step 2: does the offer want me? The score of step 1 is never changed by the matching.
+- Personal data: the profile is one Markdown file, `PROFILE_PATH` (`data/personal/profile.md`, not committed), read only at run time by `matching/profile.py`. Every task that receives it uses `MATCH_CHAIN`, which may only hold local models: `llm.local_models()` stops the program if it names a cloud model, even a disabled one. `tests/fixtures/profile_example.md` is a fictitious profile in the same format, for the tests.
+- Brick 1, requirements of an ad (`matching/requirements.py`, no personal data): each requirement is one thing, with an exact quote of the ad (checked in code as for the criteria), a kind (must, nice), a category from a fixed list and a short label. Company presentation and benefits are ignored. Same local chain as the rest of the matching.
+- Reasoning (`MATCH_THINK`): qwen3 with reasoning and structured output in one call gave unstable lists (empty once, requirements merged). So one call reasons in free text and writes a draft, a second call without reasoning puts the draft in the schema; the draft is treated as untrusted too. About 25 s per offer instead of 3 s, with requirements better split.
+- Next bricks: each requirement against the profile (covered, partial, missing, with a checked quote of the profile and its level), a match score computed in code, stored in `offers`.
+
 ## Web access and security
 
 - `robots_status` returns `allowed`, `disallowed` (blocked domain or robots.txt rule) or `error` (robots.txt unreadable). `can_fetch` only accepts `allowed`. An error is never turned into a final `blocked`.

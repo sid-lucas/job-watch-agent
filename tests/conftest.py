@@ -31,10 +31,12 @@ def no_real_llm(request, monkeypatch):
     from job_watch import llm
     llm.structured_llm.cache_clear()
     llm.tool_llm.cache_clear()
+    llm._local_chain.cache_clear()
     if request.node.get_closest_marker("allow_llm_client") is None:
-        def refuse(provider, model):
+        def refuse(provider, model, think=None):
             raise RuntimeError(f"a test tried to build a real LLM client ({provider}:{model}): use a fake")
         monkeypatch.setattr(llm, "_client", refuse)
     yield
     llm.structured_llm.cache_clear()
     llm.tool_llm.cache_clear()
+    llm._local_chain.cache_clear()

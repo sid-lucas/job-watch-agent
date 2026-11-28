@@ -1,5 +1,6 @@
-"""Shared LLM access for public web data: the models of config.MODEL_CHAIN in order, cloud models
-first, a local model as last resort. Personal documents are never sent through this module."""
+"""Shared LLM access. Public web data: the models of config.MODEL_CHAIN in order, cloud models first,
+a local model as last resort. Personal data (the profile): only through local_structured_llm and
+local_text_llm, whose chain (config.MATCH_CHAIN) is checked to hold local models only."""
 import logging
 import os
 import re
@@ -191,7 +192,8 @@ def calls_since(before: dict[str, int]) -> dict[str, int]:
             if count - before.get(name, 0)}
 
 
-def _client(provider: str, model: str):
+def _client(provider: str, model: str, think: bool | None = None):
+    """think: reasoning of a local model (None: config.OLLAMA_THINK)."""
     counter = [_CallCounter(f"{provider}:{model}")]
     if provider == "gemini":
         return ChatGoogleGenerativeAI(model=model, google_api_key=os.environ["GEMINI_API_KEY"],
@@ -201,7 +203,8 @@ def _client(provider: str, model: str):
                              max_retries=1, temperature=0, callbacks=counter)
     if provider == "ollama":
         # Reasoning off by default (config.OLLAMA_THINK): slower, and not always compatible with structured output
-        return ChatOllama(model=model, num_ctx=config.OLLAMA_NUM_CTX, temperature=0, reasoning=config.OLLAMA_THINK,
+        think = config.OLLAMA_THINK if think is None else think
+        return ChatOllama(model=model, num_ctx=config.OLLAMA_NUM_CTX, temperature=0, reasoning=think,
                           client_kwargs={"timeout": OLLAMA_TIMEOUT}, callbacks=counter)
     raise ValueError(f"Unknown LLM provider: {provider}")
 
@@ -247,6 +250,41 @@ def tool_llm(tools: tuple, models: tuple[tuple[str, str], ...] | None = None):
     """
     return _chain([(f"{provider}:{model}", _client(provider, model).bind_tools(list(tools)))
                    for provider, model in (models or llm_chain())])
+
+
+# ---------- local models only (personal data) ----------
+
+class CloudModelRefused(SystemExit):
+    """A chain meant for personal data names a cloud model: the program stops."""
+
+
+def local_models(chain: list[tuple[str, str, bool]]) -> tuple[tuple[str, str], ...]:
+    """Enabled models of a chain for personal data. Any cloud model in it, enabled or not, stops the
+    program: personal data never goes to a cloud model, not even by a fallback or a later toggle."""
+    cloud = [f"{p}:{m}" for p, m, _ in chain if p not in config.LOCAL_PROVIDERS]
+    if cloud:
+        raise CloudModelRefused(f"MATCH_CHAIN may only hold local models ({', '.join(sorted(config.LOCAL_PROVIDERS))}),"
+                                f" found: {', '.join(cloud)}. Personal data never goes to a cloud model.")
+    models = tuple((p, m) for p, m, enabled in chain if enabled)
+    if not models:
+        raise CloudModelRefused("MATCH_CHAIN has no enabled local model")
+    return models
+
+
+@cache
+def _local_chain(schema, think: bool, models: tuple[tuple[str, str], ...]):
+    return _chain([(f"{p}:{m}", _client(p, m, think).with_structured_output(schema) if schema
+                    else _client(p, m, think)) for p, m in models])
+
+
+def local_structured_llm(schema, think: bool):
+    """Local models of config.MATCH_CHAIN returning the Pydantic schema (checked on every call)."""
+    return _local_chain(schema, think, local_models(config.MATCH_CHAIN))
+
+
+def local_text_llm(think: bool):
+    """Local models of config.MATCH_CHAIN answering free text (an AIMessage; checked on every call)."""
+    return _local_chain(None, think, local_models(config.MATCH_CHAIN))
 
 
 def call_with_retry(func, *args, attempts: int = 2, wait_seconds: int = 5):

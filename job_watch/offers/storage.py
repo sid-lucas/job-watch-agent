@@ -151,17 +151,25 @@ def save_offers(offers: list[dict],
     return [(o["company"], o["key"]) for o in new_offers]
 
 
+def _read_only() -> sqlite3.Connection | None:
+    """The database opened read only (nothing created, migrated or written), or None when missing."""
+    if not config.DB_PATH.exists():
+        return None
+    conn = sqlite3.connect(f"file:{config.DB_PATH}?mode=ro", uri=True)
+    conn.row_factory = sqlite3.Row
+    return conn
+
+
 def kept_offers(company: str | None = None, min_score: int | None = None,
                 source: str | None = None) -> list[dict]:
     """Kept offers of the whole database (config.DB_PATH), best score first, then the most recently
-    first seen. Read only: the file is opened without creating, migrating or writing anything.
+    first seen, read only. "id": the SQLite rowid (scripts/match_offers.py --offer-id).
     company is matched without case; source exactly ("career_site", or an RSS source name)."""
-    if not config.DB_PATH.exists():
+    conn = _read_only()
+    if conn is None:
         return []
-    conn = sqlite3.connect(f"file:{config.DB_PATH}?mode=ro", uri=True)
-    conn.row_factory = sqlite3.Row
     try:
-        sql, params = "SELECT * FROM offers WHERE status = 'new' AND score IS NOT NULL", []
+        sql, params = "SELECT rowid AS id, * FROM offers WHERE status = 'new' AND score IS NOT NULL", []
         if company is not None:
             sql += " AND lower(company) = lower(?)"
             params.append(company)
@@ -175,3 +183,15 @@ def kept_offers(company: str | None = None, min_score: int | None = None,
     finally:
         conn.close()
     return [row_to_offer(row) for row in rows]
+
+
+def offer_by_id(offer_id: int) -> dict | None:
+    """One stored offer by its SQLite rowid, kept or rejected, read only; None when not found."""
+    conn = _read_only()
+    if conn is None:
+        return None
+    try:
+        row = conn.execute("SELECT rowid AS id, * FROM offers WHERE rowid = ?", (offer_id,)).fetchone()
+    finally:
+        conn.close()
+    return row_to_offer(row) if row else None
