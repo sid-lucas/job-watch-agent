@@ -11,13 +11,17 @@ from collections.abc import Callable
 from job_watch import config
 
 # Triage and raw criteria answers stored with an offer, so that the score can be computed again
-# without any LLM call (scripts/rescore.py). JSON columns hold lists (criteria_answers: null when
-# every model failed).
+# without any LLM call (scripts/rescore.py). Raw requirements of the ad (matching, brick 1), stored
+# so that they are never extracted twice. JSON columns hold lists (criteria_answers: null when every
+# model failed; ad_requirements: null when not extracted; the former fact-sheet column "requirements"
+# is another one, dropped).
 FACT_COLUMNS = {
     "domain": "TEXT",                                                           # triage
     "criteria_questions": "TEXT", "criteria_answers": "TEXT", "criteria_model": "TEXT", "full_ad": "INTEGER",
+    "ad_requirements": "TEXT", "ad_requirements_model": "TEXT", "ad_requirements_prompt": "TEXT",
 }
-JSON_COLUMNS = {"reasons", "criteria_answers"}
+JSON_COLUMNS = {"reasons", "criteria_answers", "ad_requirements"}
+NULLABLE_JSON = {"criteria_answers", "ad_requirements"}
 # Columns of the detail fact sheet, replaced by the criteria: dropped from an existing table. The
 # career-site publication date came from that fact sheet too (not checked in the page): emptied.
 FACT_SHEET_COLUMNS = ("detail_summary", "requirements", "city", "country", "seniority", "experience_years",
@@ -91,7 +95,7 @@ def connect() -> sqlite3.Connection:
 def _row(offer: dict) -> tuple:
     def value(name):
         found = offer.get(name)
-        if name == "criteria_answers":
+        if name in NULLABLE_JSON:
             return None if found is None else json.dumps(found, ensure_ascii=False)
         if name in JSON_COLUMNS:
             return json.dumps(found or [], ensure_ascii=False)
@@ -106,7 +110,7 @@ def row_to_offer(row: sqlite3.Row) -> dict:
     offer = dict(row)
     for name in JSON_COLUMNS:
         if name in offer:
-            empty = "null" if name == "criteria_answers" else "[]"
+            empty = "null" if name in NULLABLE_JSON else "[]"
             offer[name] = json.loads(offer[name] or empty)
     return offer
 
@@ -195,3 +199,16 @@ def offer_by_id(offer_id: int) -> dict | None:
     finally:
         conn.close()
     return row_to_offer(row) if row else None
+
+
+def save_requirements(company: str, key: str, items: list, model: str, prompt_id: str) -> None:
+    """Store the raw requirements of one offer (untrusted, checked again when read), their model and
+    the fingerprint of the instructions that gave them."""
+    conn = connect()
+    try:
+        conn.execute("UPDATE offers SET ad_requirements = ?, ad_requirements_model = ?, ad_requirements_prompt = ? "
+                     "WHERE company = ? AND key = ?",
+                     (json.dumps(items, ensure_ascii=False), model, prompt_id, company, key))
+        conn.commit()
+    finally:
+        conn.close()

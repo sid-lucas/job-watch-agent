@@ -1,6 +1,6 @@
 """Shared LLM access. Public web data: the models of config.MODEL_CHAIN in order, cloud models first,
-a local model as last resort. Personal data (the profile): only through local_call, whose chain
-(config.MATCH_CHAIN) is checked to hold local models only."""
+a local model as last resort. Personal data (the profile, the matching): only through local_call
+on config.MATCH_CHAIN, checked to hold local models only."""
 import logging
 import os
 import re
@@ -284,8 +284,11 @@ _monotonic = time.monotonic     # replaced in tests
 
 
 def local_call(messages: list, max_tokens: int, timeout: float, think: bool = False,
-               schema: type | None = None) -> tuple[str, str]:
-    """Text of the answer of the first local model of config.MATCH_CHAIN that answers, and its name.
+               schema: type | None = None, chain: list[tuple[str, str, bool]] | None = None) -> tuple[str, str]:
+    """Text of the answer of the first local model of the chain that answers, and its name.
+
+    chain: config.MATCH_CHAIN by default (personal data); a task on public data passes the local
+    models of MODEL_CHAIN. Either one goes through local_models(): a cloud model stops the program.
 
     The answer is read as a stream, against a deadline checked at every piece: the timeout of the
     HTTP client only counts the time between two pieces, so a model that keeps reasoning never hit
@@ -295,7 +298,7 @@ def local_call(messages: list, max_tokens: int, timeout: float, think: bool = Fa
     schema: a Pydantic model whose JSON schema constrains the answer (the caller validates it).
     """
     failure = LocalCallFailed("error (no model)")
-    for provider, model in local_models(config.MATCH_CHAIN):
+    for provider, model in local_models(config.MATCH_CHAIN if chain is None else chain):
         name = f"{provider}:{model}"
         options = {"format": schema.model_json_schema()} if schema else {}
         deadline = _monotonic() + timeout

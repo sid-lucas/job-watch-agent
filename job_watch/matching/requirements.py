@@ -1,16 +1,19 @@
 """Brick 1 of the matching: the requirements of one stored offer, each with an exact quote of the ad.
 
-No personal data: the LLM reads the offer only. The models are the local ones of config.MATCH_CHAIN
-all the same, so the whole matching runs on one chain. With config.MATCH_THINK, a first call reasons
-in free text (qwen3 reasoning), a second call without reasoning puts that draft in the schema: in one
-call, reasoning and structured output gave unstable lists. Each call has a deadline and a token
-limit (llm.local_call): past either one, the offer fails and the caller goes on.
+Public data only (the LLM reads the ad, never the profile): the usual MODEL_CHAIN, one structured
+call, as the criteria. When only the local model is left (every cloud model failed or skipped), it
+answers in two calls with config.MATCH_THINK: one reasons in free text, one puts that draft in the
+schema (in one call, qwen3 gave unstable lists); a reasoning cut by the token limit is replaced by
+one call without reasoning. Each local call has a deadline and a token limit (llm.local_call).
 
-Every requirement is checked in code: schema again (kind, category, no other field), quote found in
-the offer text. A requirement is dropped only for those reasons, or as a duplicate: a label too long
-is cut between words, an empty one is taken from the quote.
+The raw requirements are stored with the offer (storage.save_requirements), with their model and
+the fingerprint of the instructions (PROMPT_ID): they are never extracted twice, and are checked
+again each time they are read. Every requirement is checked in code: schema again (kind, category,
+no other field), quote found in the offer text. A requirement is dropped only for those reasons, or
+as a duplicate: a label too long is cut between words, an empty one is taken from the quote.
 """
 from collections.abc import Callable
+import hashlib
 import json
 import time
 from typing import Literal
@@ -19,7 +22,9 @@ from pydantic import BaseModel, ConfigDict, Field, ValidationError
 
 from job_watch import config
 from job_watch.list_agent.tools import _untrusted
-from job_watch.llm import LocalCallFailed, local_call
+from job_watch.llm import (LocalCallFailed, call_with_retry, calls_since, llm_chain, local_call, model_calls,
+                           only_local_left, structured_llm)
+from job_watch.offers import storage
 from job_watch.offers.ask_criteria import OfferInput, ad_text, checked_text
 from job_watch.offers.criteria import MAX_QUOTE_CHARS, cut_between_words, quote_in
 
@@ -71,6 +76,11 @@ class Requirements(BaseModel):
     requirements: list[Requirement]
 
 
+# Fingerprint of the instructions and the schema: stored requirements given by other ones are extracted again
+PROMPT_ID = hashlib.sha256(json.dumps([RULES, DRAFT_TASK, FORMAT_TASK, Requirements.model_json_schema()],
+                                      sort_keys=True).encode()).hexdigest()[:12]
+
+
 class Dropped(BaseModel):
     item: str       # the raw item, shortened
     reason: str
@@ -81,6 +91,8 @@ class Extraction(BaseModel):
     dropped: list[Dropped]              # refused by the checks, with the reason
     model: str = ""                     # model that gave the final list
     failure: str = ""                   # "timeout", "too long", "invalid answer", "error (...)"; "" when it worked
+    raw: list = []                      # raw items of the LLM (untrusted), as stored
+    reused: bool = False                # read from the database, not extracted again
 
 
 def _offer_prompt(offer: OfferInput) -> str:
@@ -90,11 +102,15 @@ def _offer_prompt(offer: OfferInput) -> str:
 
 
 def _raw_items(reply) -> list | None:
-    """The items of a structured reply (JSON text), or None when it is not a list of requirements."""
-    try:
-        reply = json.loads(reply)
-    except (TypeError, ValueError):
-        return None
+    """The items of a structured reply (a Requirements, or its JSON text from a local model), or None
+    when it is not a list of requirements."""
+    if isinstance(reply, BaseModel):
+        reply = reply.model_dump()
+    elif isinstance(reply, str):
+        try:
+            reply = json.loads(reply)
+        except ValueError:
+            return None
     items = reply.get("requirements") if isinstance(reply, dict) else None
     return items if isinstance(items, list) else None
 
@@ -129,37 +145,81 @@ def check_requirements(items: list, text: str) -> tuple[list[Requirement], list[
     return kept, dropped
 
 
-def extract_requirements(offer: OfferInput, log: Callable[[str], None] | None = None) -> Extraction:
-    """Requirements of one offer (local models of MATCH_CHAIN, one or two calls), checked in code.
-    log: one line at the start and at the end of each call."""
-    log = log or (lambda line: None)
-    offer_prompt = _offer_prompt(offer)
-    calls = 2 if config.MATCH_THINK else 1
-
-    def call(number: int, what: str, messages: list, **options) -> tuple[str, str]:
-        log(f"call {number}/{calls} ({what}) started")
-        start = time.monotonic()
-        try:
-            answer = local_call(messages, timeout=config.MATCH_TIMEOUT, **options)
-        except LocalCallFailed as failure:
-            log(f"call {number}/{calls} failed ({failure.reason}) after {time.monotonic() - start:.0f}s")
-            raise
-        log(f"call {number}/{calls} done in {time.monotonic() - start:.0f}s | {answer[1]}")
-        return answer
-
-    try:
-        if config.MATCH_THINK:
-            draft, _ = call(1, "draft, reasoning", [("system", RULES), ("user", f"{DRAFT_TASK}\n\n{offer_prompt}")],
-                            think=True, max_tokens=config.MATCH_DRAFT_MAX_TOKENS)
-            user = f"{FORMAT_TASK}\n\n<draft>\n{_untrusted(draft)}\n</draft>\n\n{offer_prompt}"
-        else:
-            user = offer_prompt
-        reply, model = call(calls, "list", [("system", RULES), ("user", user)], think=False,
-                            max_tokens=config.MATCH_FORMAT_MAX_TOKENS, schema=Requirements)
-    except LocalCallFailed as failure:
-        return Extraction(requirements=[], dropped=[], failure=failure.reason)
-    items = _raw_items(reply)
+def _checked(items: list | None, model: str, text: str, reused: bool = False) -> Extraction:
     if items is None:
         return Extraction(requirements=[], dropped=[], model=model, failure="invalid answer")
-    kept, dropped = check_requirements(items, checked_text(offer))
-    return Extraction(requirements=kept, dropped=dropped, model=model)
+    kept, dropped = check_requirements(items, text)
+    return Extraction(requirements=kept, dropped=dropped, model=model, raw=items, reused=reused)
+
+
+def _local_models() -> list[tuple[str, str, bool]]:
+    return [(p, m, True) for p, m in llm_chain() if p in config.LOCAL_PROVIDERS]
+
+
+def _ask_local(offer_prompt: str, log: Callable[[str], None]) -> tuple[str, str]:
+    """(JSON text, model) from the local models of MODEL_CHAIN; raises LocalCallFailed."""
+    def call(what: str, messages: list, **options) -> tuple[str, str]:
+        log(f"local call {what} started")
+        start = time.monotonic()
+        try:
+            answer = local_call(messages, timeout=config.MATCH_TIMEOUT, chain=_local_models(), **options)
+        except LocalCallFailed as failure:
+            log(f"local call {what} failed ({failure.reason}) after {time.monotonic() - start:.0f}s")
+            raise
+        log(f"local call {what} done in {time.monotonic() - start:.0f}s | {answer[1]}")
+        return answer
+
+    if config.MATCH_THINK:
+        try:
+            draft, _ = call("1/2 (draft, reasoning)", [("system", RULES), ("user", f"{DRAFT_TASK}\n\n{offer_prompt}")],
+                            think=True, max_tokens=config.MATCH_DRAFT_MAX_TOKENS)
+        except LocalCallFailed as failure:
+            if failure.reason != "too long":
+                raise
+            log("reasoning too long: one call without reasoning instead")
+        else:
+            user = f"{FORMAT_TASK}\n\n<draft>\n{_untrusted(draft)}\n</draft>\n\n{offer_prompt}"
+            return call("2/2 (list)", [("system", RULES), ("user", user)], think=False,
+                        max_tokens=config.MATCH_FORMAT_MAX_TOKENS, schema=Requirements)
+    return call("(list, no reasoning)", [("system", RULES), ("user", offer_prompt)], think=False,
+                max_tokens=config.MATCH_FORMAT_MAX_TOKENS, schema=Requirements)
+
+
+def extract_requirements(offer: OfferInput, log: Callable[[str], None] | None = None) -> Extraction:
+    """Requirements of one offer, checked in code: one structured call on the cloud models of
+    MODEL_CHAIN, else the local ones. log: one line at the start and at the end of each call."""
+    log = log or (lambda line: None)
+    offer_prompt, text = _offer_prompt(offer), checked_text(offer)
+    cloud = tuple((p, m) for p, m in llm_chain() if p not in config.LOCAL_PROVIDERS)
+    if cloud and not only_local_left():
+        log("call started (MODEL_CHAIN)")
+        before, start = model_calls(), time.monotonic()
+        reply = call_with_retry(structured_llm(Requirements, cloud).invoke,
+                                [("system", RULES), ("user", offer_prompt)])
+        if reply is not None:
+            model = next((name for name in calls_since(before) if " " not in name), "")
+            log(f"call done in {time.monotonic() - start:.0f}s | {model}")
+            return _checked(_raw_items(reply), model, text)
+        log("every cloud model failed: local model")
+    if not _local_models():
+        return Extraction(requirements=[], dropped=[], failure="error (every model failed)")
+    try:
+        reply, model = _ask_local(offer_prompt, log)
+    except LocalCallFailed as failure:
+        return Extraction(requirements=[], dropped=[], failure=failure.reason)
+    return _checked(_raw_items(reply), model, text)
+
+
+def requirements_of(offer: dict, refresh: bool = False, log: Callable[[str], None] | None = None) -> Extraction:
+    """Requirements of a stored offer: the stored ones, checked again, when the same instructions gave
+    them; else extracted and stored (not when the extraction failed). refresh: always extract."""
+    query = OfferInput(company=offer["company"], title=offer["title"], location=offer.get("location") or "",
+                       ad=offer.get("description") or "")
+    stored = offer.get("ad_requirements")
+    if not refresh and stored is not None and offer.get("ad_requirements_prompt") == PROMPT_ID:
+        return _checked(stored if isinstance(stored, list) else None, offer.get("ad_requirements_model") or "",
+                        checked_text(query), reused=True)
+    extraction = extract_requirements(query, log)
+    if not extraction.failure:
+        storage.save_requirements(offer["company"], offer["key"], extraction.raw, extraction.model, PROMPT_ID)
+    return extraction

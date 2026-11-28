@@ -1,5 +1,6 @@
-"""Matching brick 1: requirements of an offer, checked in code; local calls with a deadline and a
-token limit; the local-only guard (no LLM: fake models and a fake clock)."""
+"""Matching brick 1: requirements of an offer (MODEL_CHAIN, local fallback), checked in code and
+stored; local calls with a deadline and a token limit; the local-only guard (no LLM: fake models
+and a fake clock)."""
 import json
 
 import pytest
@@ -9,6 +10,7 @@ from job_watch import config, llm
 from job_watch.matching import requirements as req
 from job_watch.matching.profile import read_profile
 from job_watch.offers.ask_criteria import OfferInput
+from job_watch.offers.criteria import quote_in
 
 AD = ("About us: a great bank with free coffee. Your profile: 3 years of experience in a SOC. "
       "Strong Python skills. Experience with a SIEM. German is a plus. "
@@ -20,34 +22,57 @@ def item(quote, label, kind="must", category="skill"):
     return {"quote": quote, "kind": kind, "category": category, "label": label}
 
 
+LOCAL_ONLY = [("ollama", "qwen3:8b")]
+
+
 def fake_calls(monkeypatch, items, draft="must ; skill ; Python ; \"Strong Python skills\"", fail=None):
-    """req.local_call replaced: call 1 gives the draft, call 2 the JSON list; fail: reason of a failure."""
+    """Only the local model in MODEL_CHAIN; req.local_call replaced: the draft, then the JSON list.
+    fail: {call number: reason} of failed calls."""
+    monkeypatch.setattr(req, "llm_chain", lambda: LOCAL_ONLY)
     seen = []
-    def local_call(messages, max_tokens, timeout, think=False, schema=None):
-        seen.append({"messages": messages, "think": think, "schema": schema, "max_tokens": max_tokens})
-        if fail:
-            raise llm.LocalCallFailed(fail)
+    def local_call(messages, max_tokens, timeout, think=False, schema=None, chain=None):
+        seen.append({"messages": messages, "think": think, "schema": schema, "max_tokens": max_tokens,
+                     "chain": chain})
+        if fail and len(seen) in fail:
+            raise llm.LocalCallFailed(fail[len(seen)])
         return (json.dumps({"requirements": items}) if schema else draft), "ollama:fake"
     monkeypatch.setattr(req, "local_call", local_call)
     return seen
 
 
-def test_invented_quote_is_dropped_and_good_ones_kept(monkeypatch):
-    seen = fake_calls(monkeypatch, [
-        item("Strong Python skills", "Python"),
-        item("3 years of experience in a SOC", "3 years experience", category="experience"),
-        item("German is a plus", "German", kind="nice", category="language"),
-        item("Kubernetes certification required", "Kubernetes", category="certification")])
-    lines = []
-    extraction = req.extract_requirements(OFFER, log=lines.append)
-    assert [r.label for r in extraction.requirements] == ["Python", "3 years experience", "German"]
-    assert extraction.requirements[2].kind == "nice" and extraction.model == "ollama:fake"
-    assert [d.reason for d in extraction.dropped] == ["quote not in the offer"]
-    assert [(c["think"], c["schema"]) for c in seen] == [(True, None), (False, req.Requirements)]
-    assert [c["max_tokens"] for c in seen] == [config.MATCH_DRAFT_MAX_TOKENS, config.MATCH_FORMAT_MAX_TOKENS]
-    assert "Strong Python skills" in seen[1]["messages"][1][1] and "<draft>" in seen[1]["messages"][1][1]
-    assert [line[:8] for line in lines] == ["call 1/2"] * 2 + ["call 2/2"] * 2
-    assert lines[0] == "call 1/2 (draft, reasoning) started" and lines[3].startswith("call 2/2 done in ")
+def fake_cloud(monkeypatch, reply):
+    """A cloud model first in MODEL_CHAIN, answering `reply` (None: every cloud model failed)."""
+    monkeypatch.setattr(req, "llm_chain", lambda: [("gemini", "g"), *LOCAL_ONLY])
+    monkeypatch.setattr(req, "only_local_left", lambda: False)
+    seen = []
+    class Chain:
+        def invoke(self, messages):
+            seen.append(messages)
+            return reply
+    def structured(schema, models):
+        seen.append(models)
+        return Chain()
+    monkeypatch.setattr(req, "structured_llm", structured)
+    monkeypatch.setattr(req, "call_with_retry", lambda func, *args: func(*args))
+    return seen
+
+
+def test_public_ad_goes_to_the_cloud_models_in_one_structured_call(monkeypatch):
+    seen = fake_cloud(monkeypatch, req.Requirements(requirements=[
+        req.Requirement(quote="Strong Python skills", kind="must", category="skill", label="Python")]))
+    local = fake_calls(monkeypatch, [])
+    monkeypatch.setattr(req, "llm_chain", lambda: [("gemini", "g"), *LOCAL_ONLY])
+    extraction = req.extract_requirements(OFFER)
+    assert [r.label for r in extraction.requirements] == ["Python"] and extraction.raw[0]["label"] == "Python"
+    assert seen[0] == (("gemini", "g"),) and local == []                 # cloud models only, no local call
+
+
+def test_every_cloud_model_failed_falls_back_to_the_local_model(monkeypatch):
+    fake_cloud(monkeypatch, None)
+    local = fake_calls(monkeypatch, [item("Strong Python skills", "Python")])
+    monkeypatch.setattr(req, "llm_chain", lambda: [("gemini", "g"), *LOCAL_ONLY])
+    assert [r.label for r in req.extract_requirements(OFFER).requirements] == ["Python"]
+    assert len(local) == 2 and local[0]["chain"] == [("ollama", "qwen3:8b", True)]
 
 
 def test_a_label_too_long_is_cut_and_an_empty_one_comes_from_the_quote():
@@ -78,20 +103,74 @@ def test_duplicates_and_extra_fields_are_dropped():
     assert [d.reason for d in dropped] == ["duplicate", "invalid score"]
 
 
-def test_without_reasoning_one_structured_call(monkeypatch):
+def test_local_without_reasoning_one_structured_call(monkeypatch):
     monkeypatch.setattr(config, "MATCH_THINK", False)
     seen = fake_calls(monkeypatch, [item("Strong Python skills", "Python")])
     assert [r.label for r in req.extract_requirements(OFFER).requirements] == ["Python"]
     assert [c["schema"] for c in seen] == [req.Requirements]
 
 
-@pytest.mark.parametrize("reason", ["timeout", "too long"])
-def test_a_failed_call_fails_the_offer_with_its_reason(monkeypatch, reason):
-    seen = fake_calls(monkeypatch, [], fail=reason)
+def test_a_timeout_fails_the_offer(monkeypatch):
+    seen = fake_calls(monkeypatch, [], fail={1: "timeout"})
     lines = []
     extraction = req.extract_requirements(OFFER, log=lines.append)
-    assert extraction.failure == reason and extraction.requirements == []
-    assert len(seen) == 1 and lines[-1].startswith(f"call 1/2 failed ({reason}) after ")
+    assert extraction.failure == "timeout" and extraction.requirements == []
+    assert len(seen) == 1 and lines[-1].startswith("local call 1/2 (draft, reasoning) failed (timeout) after ")
+
+
+def test_reasoning_too_long_is_replaced_by_one_call_without_reasoning(monkeypatch):
+    seen = fake_calls(monkeypatch, [item("Strong Python skills", "Python")], fail={1: "too long"})
+    lines = []
+    extraction = req.extract_requirements(OFFER, log=lines.append)
+    assert [r.label for r in extraction.requirements] == ["Python"]
+    assert [(c["think"], c["schema"]) for c in seen] == [(True, None), (False, req.Requirements)]
+    assert "<draft>" not in seen[1]["messages"][1][1]
+    assert "reasoning too long: one call without reasoning instead" in lines
+
+
+def test_a_list_too_long_after_the_reasoning_fails(monkeypatch):
+    fake_calls(monkeypatch, [], fail={2: "too long"})
+    assert req.extract_requirements(OFFER).failure == "too long"
+
+
+def test_requirements_are_stored_and_never_extracted_twice(monkeypatch, tmp_path):
+    from job_watch.offers import storage
+    monkeypatch.setattr(config, "DB_PATH", tmp_path / "offers.db")
+    storage.save_offers([{"company": "Bank", "key": "a", "link": "", "title": "SOC Analyst", "location": "Geneva",
+                          "description": AD, "source": "career_site", "score": 30, "status": "new", "reasons": []}])
+    seen = fake_calls(monkeypatch, [item("Strong Python skills", "Python"), item("invented words", "X")])
+    first = req.requirements_of(storage.offer_by_id(1))
+    assert not first.reused and len(seen) == 2
+    stored = storage.offer_by_id(1)
+    assert stored["ad_requirements_model"] == "ollama:fake" and stored["ad_requirements_prompt"] == req.PROMPT_ID
+    assert len(stored["ad_requirements"]) == 2                              # raw items, checked again when read
+    again = req.requirements_of(stored)
+    assert again.reused and len(seen) == 2 and [r.label for r in again.requirements] == ["Python"]
+    assert [d.reason for d in again.dropped] == ["quote not in the offer"]
+    req.requirements_of(stored, refresh=True)
+    assert len(seen) == 4
+    storage.save_requirements("Bank", "a", [], "m", "other instructions")
+    assert not req.requirements_of(storage.offer_by_id(1)).reused       # other fingerprint: extracted again
+
+
+def test_a_failed_extraction_is_not_stored(monkeypatch, tmp_path):
+    from job_watch.offers import storage
+    monkeypatch.setattr(config, "DB_PATH", tmp_path / "offers.db")
+    storage.save_offers([{"company": "Bank", "key": "a", "link": "", "title": "T", "description": AD,
+                          "source": "career_site", "score": 30, "status": "new", "reasons": []}])
+    fake_calls(monkeypatch, [], fail={1: "timeout"})
+    assert req.requirements_of(storage.offer_by_id(1)).failure == "timeout"
+    assert storage.offer_by_id(1)["ad_requirements"] is None
+
+
+def test_markdown_and_typographic_marks_do_not_drop_a_quote():
+    ad = "Expérience avec LangChain et/ou **pydantic-ai** (agents, chains, tools, memory, RAG)."
+    quote = "Expérience avec LangChain et/ou pydantic-ai (agents, chains, tools, memory, RAG)."
+    kept, dropped = req.check_requirements([item(quote, "LangChain or pydantic-ai", category="tool")], ad)
+    assert dropped == [] and len(kept) == 1
+    assert quote_in("l’expérience « en équipe »", "Nous valorisons l'expérience \"en   équipe\".")
+    assert quote_in("**pydantic-ai**", "Expérience avec pydantic-ai")
+    assert not quote_in("Expérience avec LangChain ou pydantic-ai", ad)        # still word for word
 
 
 def test_an_answer_that_is_not_a_list_fails_the_offer(monkeypatch):

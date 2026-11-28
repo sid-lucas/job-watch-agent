@@ -37,7 +37,7 @@ job_watch/              application code (package)
   offers/               V1 pipeline: RSS and career sites -> triage -> criteria -> score -> SQLite (offers, listed_offers)
   list_agent/           V1.2 career sites: list agent (LangGraph), offer extraction, detail phase
   registry/             V1.1 career sites registry (storage, resolution rules, verification)
-  matching/             step 2: requirements of an offer, match against the profile (local models only)
+  matching/             step 2: requirements of an offer, match against the profile (profile: local models only)
   judges/               LLM judge of career pages
   web/                  web access (robots.txt, fetching), headless browser, web search
   config.py, llm.py     technical settings, shared LLM client
@@ -62,7 +62,7 @@ python main.py --sources career_sites --companies "Lombard Odier,ICRC"   # some 
 python main.py --db /tmp/try.db --registry /tmp/registry.json            # another database and registry
 LLM_ONLY=ollama python main.py ...     # local model only (Gemini quota exhausted)
 python -m scripts.show_offers [--top N] [--company NAME] [--min-score S] [--source SRC]   # best kept offers of the whole database (read only)
-python -u -m scripts.match_offers --requirements-only --top 3   # requirements of the best offers (local model only)
+python -u -m scripts.match_offers --requirements-only --top 3   # requirements of the best offers (stored; --refresh)
 python -u -m scripts.check_model gemini:MODEL   # structured output and tool calling of one model, before enabling it
 ```
 

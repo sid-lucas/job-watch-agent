@@ -283,9 +283,18 @@ def criterion_id(index: int) -> str:
     return f"c{index + 1}"
 
 
+# Before quotes are compared: Markdown emphasis and code marks dropped, typographic apostrophes and
+# quotation marks made plain (French guillemets without their inner spaces). No fuzzy match: what is
+# left must be the same, word for word.
+_QUOTE_MARKS = str.maketrans({"*": None, "_": None, "`": None, "’": "'", "‘": "'", "ʼ": "'",
+                              "«": '"', "»": '"', "“": '"', "”": '"', "„": '"'})
+
+
 def _normal(text: str) -> str:
-    """Text compared for quotes: Unicode compatibility form, case folded, whitespace collapsed."""
-    return " ".join(unicodedata.normalize("NFKC", text or "").casefold().split())
+    """Text compared for quotes: Unicode compatibility form, Markdown marks dropped, apostrophes and
+    quotation marks unified, case folded, whitespace collapsed."""
+    text = re.sub(r"\s*»", "»", re.sub(r"«\s*", "«", unicodedata.normalize("NFKC", text or "")))
+    return " ".join(text.translate(_QUOTE_MARKS).casefold().split())
 
 
 def quote_in(quote: str, text: str) -> bool:
