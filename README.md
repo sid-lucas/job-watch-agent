@@ -86,7 +86,7 @@ python -m scripts.show_registry        # overview of the registry (read only)
 python -m scripts.add_registry_entry "COMPANY" URL   # add a known job list (robots.txt + page judge, no Serper)
 ```
 
-`python -m evals.check_page_judge` runs the judge on pages verified by hand.
+`python -m evals.check_page_judge` runs the judge on pages verified by hand; `python -u -m evals.check_requirements` measures the extraction of the requirements against frozen outputs (run it when its instructions change).
 
 Target companies (`COMPANIES`: tier, aliases, domains, context), your profile and your criteria (`PROFILE`, `CRITERIA`, `CODE_CRITERIA`) are set in `user_config.py`; see `user_config.example.py`. They are checked at startup: a problem stops the program with a message naming the criterion.
 `python -m scripts.rescore [--db PATH] [--dry-run]` applies changed settings to the stored answers, without any LLM call; `--ask` asks again the offers whose questions changed (with `--reask-unrecorded`, also those whose answering model was not recorded), `--open-details` opens the pages of listed offers kept again later (`--dry-run` counts pages and calls first).

@@ -1,5 +1,5 @@
 """Matching of stored offers against the profile (step 2). Brick 1 only for now: the requirements
-of the ad (public data: MODEL_CHAIN, local model as fallback), checked in code. They are stored
+of the ad (public data: REQUIREMENTS_CHAIN, local model as fallback), checked in code. They are stored
 with the offer and reused on the next run (--refresh extracts them again); nothing else is written.
 
     python -u -m scripts.match_offers --requirements-only --top 3     # best kept offers (as show_offers)
@@ -11,8 +11,17 @@ from pathlib import Path
 
 from job_watch import config
 from job_watch.llm import llm_chain
+from job_watch.matching.requirements import Requirement
 from job_watch.matching.requirements import requirements_of
 from job_watch.offers import storage
+
+
+def describe(r: Requirement) -> str:
+    """Label with its options, years and level: "Python (Python | Go, 3+ y)"."""
+    extra = [" | ".join(r.options)] if r.options else []
+    extra += [f"{r.min_years}+ y"] if r.min_years is not None else []
+    extra += [r.level] if r.level else []
+    return r.label + (f" ({', '.join(extra)})" if extra else "")
 
 
 def main(argv: list[str] | None = None) -> None:
@@ -37,7 +46,7 @@ def main(argv: list[str] | None = None) -> None:
         offers = [found]
     else:
         offers = storage.kept_offers(min_score=config.MIN_SCORE)[:args.top]
-    print(f"{len(offers)} offer(s), models {', '.join(f'{p}:{m}' for p, m in llm_chain())}; local fallback: "
+    print(f"{len(offers)} offer(s), models {', '.join(m for _, m in llm_chain(config.REQUIREMENTS_CHAIN))}; local: "
           f"reasoning {'on (2 calls)' if config.MATCH_THINK else 'off'}, at most {config.MATCH_TIMEOUT}s per call")
     for offer in offers:
         print(f"\n#{offer['id']}  {offer['score']}  {offer['title']} @ {offer['company']}  [{offer['source']}]")
@@ -54,7 +63,9 @@ def main(argv: list[str] | None = None) -> None:
         print(f"      {len(extraction.requirements)} requirements, {len(extraction.dropped)} dropped"
               f" | {extraction.model} {source}")
         for r in extraction.requirements:
-            print(f"      {r.kind:4} {r.category:13} {r.label:28} '{r.quote}'")
+            print(f"      {r.kind:4} {r.category:13} {describe(r):40} '{r.quote}'")
+        for note in extraction.notes:
+            print(f"      corrected: {note}")
         for d in extraction.dropped:
             print(f"      dropped ({d.reason}): {d.item}")
 

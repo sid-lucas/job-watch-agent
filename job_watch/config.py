@@ -34,6 +34,21 @@ MODEL_CHAIN = [
     ("ollama", "qwen3:8b", True),                   # local, last resort
 ]
 LOCAL_PROVIDERS = {"ollama"}
+# Requirements of an ad (matching, brick 1): extracted once per matched offer and stored, the base of
+# the matching, so the most capable models first (about 20 requests a day each), then the lite ones,
+# then the local fallback. Public data only (the ad). Every other task keeps MODEL_CHAIN.
+# Seconds per cloud request of this chain: the larger models answered 504 DEADLINE_EXCEEDED on long
+# ads within the 30 s of the other tasks.
+REQUIREMENTS_TIMEOUT = 90
+REQUIREMENTS_CHAIN = [
+    ("gemini", "gemini-3.8-flash", True),
+    ("gemini", "gemini-3.6-flash", True),
+    ("gemini", "gemini-3-flash-preview", True),
+    ("gemini", "gemini-4-hydrogen", True),
+    ("gemini", "gemini-3.5-flash-lite", True),
+    ("gemini", "gemini-3.1-flash-lite", True),
+    ("ollama", "qwen3:8b", True),
+]
 # When only local models are left (every cloud model skipped for the run), at most this many offers
 # are still answered by the criteria during the run; the others wait for the next run (they stay new)
 LOCAL_ONLY_MAX_CRITERIA = 5

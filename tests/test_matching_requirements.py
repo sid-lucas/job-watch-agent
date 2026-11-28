@@ -18,8 +18,9 @@ AD = ("About us: a great bank with free coffee. Your profile: 3 years of experie
 OFFER = OfferInput(company="Bank", title="SOC Analyst", location="Geneva", ad=AD)
 
 
-def item(quote, label, kind="must", category="skill"):
-    return {"quote": quote, "kind": kind, "category": category, "label": label}
+def item(quote, label, kind="must", category="skill", options=(), min_years=None, level=""):
+    return {"quote": quote, "kind": kind, "category": category, "label": label, "options": list(options),
+            "min_years": min_years, "level": level}
 
 
 LOCAL_ONLY = [("ollama", "qwen3:8b")]
@@ -28,7 +29,7 @@ LOCAL_ONLY = [("ollama", "qwen3:8b")]
 def fake_calls(monkeypatch, items, draft="must ; skill ; Python ; \"Strong Python skills\"", fail=None):
     """Only the local model in MODEL_CHAIN; req.local_call replaced: the draft, then the JSON list.
     fail: {call number: reason} of failed calls."""
-    monkeypatch.setattr(req, "llm_chain", lambda: LOCAL_ONLY)
+    monkeypatch.setattr(req, "llm_chain", lambda chain=None: LOCAL_ONLY)
     seen = []
     def local_call(messages, max_tokens, timeout, think=False, schema=None, chain=None):
         seen.append({"messages": messages, "think": think, "schema": schema, "max_tokens": max_tokens,
@@ -42,15 +43,16 @@ def fake_calls(monkeypatch, items, draft="must ; skill ; Python ; \"Strong Pytho
 
 def fake_cloud(monkeypatch, reply):
     """A cloud model first in MODEL_CHAIN, answering `reply` (None: every cloud model failed)."""
-    monkeypatch.setattr(req, "llm_chain", lambda: [("gemini", "g"), *LOCAL_ONLY])
-    monkeypatch.setattr(req, "only_local_left", lambda: False)
+    monkeypatch.setattr(req, "llm_chain", lambda chain=None: [("gemini", "g"), *LOCAL_ONLY])
+    monkeypatch.setattr(req, "only_local_left", lambda chain=None: False)
     seen = []
     class Chain:
         def invoke(self, messages):
             seen.append(messages)
             return reply
-    def structured(schema, models):
+    def structured(schema, models, timeout=None):
         seen.append(models)
+        seen.append(timeout)
         return Chain()
     monkeypatch.setattr(req, "structured_llm", structured)
     monkeypatch.setattr(req, "call_with_retry", lambda func, *args: func(*args))
@@ -59,25 +61,31 @@ def fake_cloud(monkeypatch, reply):
 
 def test_public_ad_goes_to_the_cloud_models_in_one_structured_call(monkeypatch):
     seen = fake_cloud(monkeypatch, req.Requirements(requirements=[
-        req.Requirement(quote="Strong Python skills", kind="must", category="skill", label="Python")]))
+        req.Requirement(**item("Strong Python skills", "Python"))]))
     local = fake_calls(monkeypatch, [])
-    monkeypatch.setattr(req, "llm_chain", lambda: [("gemini", "g"), *LOCAL_ONLY])
+    monkeypatch.setattr(req, "llm_chain", lambda chain=None: [("gemini", "g"), *LOCAL_ONLY])
     extraction = req.extract_requirements(OFFER)
     assert [r.label for r in extraction.requirements] == ["Python"] and extraction.raw[0]["label"] == "Python"
     assert seen[0] == (("gemini", "g"),) and local == []                 # cloud models only, no local call
+    assert seen[1] == config.REQUIREMENTS_TIMEOUT
 
 
 def test_every_cloud_model_failed_falls_back_to_the_local_model(monkeypatch):
     fake_cloud(monkeypatch, None)
     local = fake_calls(monkeypatch, [item("Strong Python skills", "Python")])
-    monkeypatch.setattr(req, "llm_chain", lambda: [("gemini", "g"), *LOCAL_ONLY])
+    monkeypatch.setattr(req, "llm_chain", lambda chain=None: [("gemini", "g"), *LOCAL_ONLY])
     assert [r.label for r in req.extract_requirements(OFFER).requirements] == ["Python"]
     assert len(local) == 2 and local[0]["chain"] == [("ollama", "qwen3:8b", True)]
 
 
+def test_the_requirements_use_their_own_chain_most_capable_models_first():
+    assert config.REQUIREMENTS_CHAIN[0][1] == "gemini-3.8-flash"
+    assert config.REQUIREMENTS_CHAIN[-1][0] in config.LOCAL_PROVIDERS
+
+
 def test_a_label_too_long_is_cut_and_an_empty_one_comes_from_the_quote():
     long = "Familiarity with generative AI, AI agents and the tools that build them, in a bank"
-    kept, dropped = req.check_requirements([
+    kept, dropped, notes = req.check_requirements([
         item("Familiarity with generative AI, AI agents and the tools that build them", long),
         item("Experience with a SIEM", "  ", category="tool")], AD)
     assert dropped == []
@@ -86,8 +94,30 @@ def test_a_label_too_long_is_cut_and_an_empty_one_comes_from_the_quote():
     assert kept[1].label == "Experience with a SIEM"
 
 
+def test_alternatives_years_and_levels_are_checked_and_corrected():
+    ad = ("3-5 years of experience with Python or Go. Bachelor in computer science or equivalent. "
+          "Fluent English (C1). At least two years in a SOC. Strong Python skills.")
+    kept, dropped, notes = req.check_requirements([
+        item("3-5 years of experience with Python or Go", "3 years experience", category="experience",
+             options=["Python", " Go ", "python"], min_years=3),
+        item("Bachelor in computer science or equivalent", "Bachelor", category="education",
+             options=["computer science"]),                                  # one option: no choice
+        item("Fluent English (C1)", "English", category="language", level=" C1 "),
+        item("At least two years in a SOC", "2 years in a SOC", category="experience", min_years=2),
+        item("Strong Python skills", "Python", min_years=5, level="expert")], ad)
+    assert dropped == []
+    assert [(r.options, r.min_years, r.level) for r in kept] == [
+        (["Python", "Go"], 3, ""), ([], None, ""), ([], None, "C1"), ([], 2, ""), ([], None, "")]
+    assert notes == ["Python: min_years 5 not stated in the quote, removed"]     # an invented number
+
+
+def test_soft_skills_are_a_category_of_their_own():
+    kept, _, _ = req.check_requirements([item("Strong Python skills", "Team player", category="soft_skill")], AD)
+    assert kept[0].category == "soft_skill"
+
+
 def test_category_or_kind_outside_the_list_is_refused():
-    kept, dropped = req.check_requirements([
+    kept, dropped, notes = req.check_requirements([
         item("Strong Python skills", "Python", category="programming"),
         item("Experience with a SIEM", "SIEM", kind="required", category="tool"),
         item("Experience with a SIEM", "SIEM", category="tool")], AD)
@@ -96,7 +126,7 @@ def test_category_or_kind_outside_the_list_is_refused():
 
 
 def test_duplicates_and_extra_fields_are_dropped():
-    kept, dropped = req.check_requirements([
+    kept, dropped, notes = req.check_requirements([
         item("Strong Python skills", "  Python "), item("Strong Python skills", "python"),
         {**item("Experience with a SIEM", "SIEM", category="tool"), "score": 5}], AD)
     assert [r.label for r in kept] == ["Python"]
@@ -166,7 +196,7 @@ def test_a_failed_extraction_is_not_stored(monkeypatch, tmp_path):
 def test_markdown_and_typographic_marks_do_not_drop_a_quote():
     ad = "Expérience avec LangChain et/ou **pydantic-ai** (agents, chains, tools, memory, RAG)."
     quote = "Expérience avec LangChain et/ou pydantic-ai (agents, chains, tools, memory, RAG)."
-    kept, dropped = req.check_requirements([item(quote, "LangChain or pydantic-ai", category="tool")], ad)
+    kept, dropped, notes = req.check_requirements([item(quote, "LangChain or pydantic-ai", category="tool")], ad)
     assert dropped == [] and len(kept) == 1
     assert quote_in("l’expérience « en équipe »", "Nous valorisons l'expérience \"en   équipe\".")
     assert quote_in("**pydantic-ai**", "Expérience avec pydantic-ai")

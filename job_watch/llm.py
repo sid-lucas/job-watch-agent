@@ -192,15 +192,17 @@ def calls_since(before: dict[str, int]) -> dict[str, int]:
             if count - before.get(name, 0)}
 
 
-def _client(provider: str, model: str, think: bool | None = None, max_tokens: int | None = None):
+def _client(provider: str, model: str, think: bool | None = None, max_tokens: int | None = None,
+            timeout: float | None = None):
     """think: reasoning of a local model (None: config.OLLAMA_THINK). max_tokens: limit of the
-    generated tokens of a local model, reasoning included (None: no limit)."""
+    generated tokens of a local model, reasoning included (None: no limit). timeout: seconds per
+    request of a cloud model (None: the provider's default)."""
     counter = [_CallCounter(f"{provider}:{model}")]
     if provider == "gemini":
         return ChatGoogleGenerativeAI(model=model, google_api_key=os.environ["GEMINI_API_KEY"],
-                                      timeout=GEMINI_TIMEOUT, max_retries=1, callbacks=counter)
+                                      timeout=timeout or GEMINI_TIMEOUT, max_retries=1, callbacks=counter)
     if provider == "mistral":
-        return ChatMistralAI(model=model, mistral_api_key=os.environ["MISTRAL_API_KEY"], timeout=MISTRAL_TIMEOUT,
+        return ChatMistralAI(model=model, mistral_api_key=os.environ["MISTRAL_API_KEY"], timeout=timeout or MISTRAL_TIMEOUT,
                              max_retries=1, temperature=0, callbacks=counter)
     if provider == "ollama":
         # Reasoning off by default (config.OLLAMA_THINK): slower, and not always compatible with structured output
@@ -214,31 +216,33 @@ def _client(provider: str, model: str, think: bool | None = None, max_tokens: in
 OPTIONAL_KEYS = {"mistral": "MISTRAL_API_KEY"}
 
 
-def llm_chain() -> list[tuple[str, str]]:
-    """Enabled models of config.MODEL_CHAIN, or only one provider when LLM_ONLY is set (e.g. LLM_ONLY=ollama).
+def llm_chain(chain: list[tuple[str, str, bool]] | None = None) -> list[tuple[str, str]]:
+    """Enabled models of a chain (config.MODEL_CHAIN by default), or only one provider when LLM_ONLY
+    is set (e.g. LLM_ONLY=ollama).
 
     An optional provider without its API key in the environment is left out.
     """
     only = os.environ.get("LLM_ONLY")
-    chain = [(p, m) for p, m, enabled in config.MODEL_CHAIN if enabled and (not only or p == only)
-             and (p not in OPTIONAL_KEYS or os.environ.get(OPTIONAL_KEYS[p]))]
-    if not chain:
-        raise ValueError(f"No model left in MODEL_CHAIN for LLM_ONLY={only}")
-    return chain
+    found = [(p, m) for p, m, enabled in (config.MODEL_CHAIN if chain is None else chain)
+             if enabled and (not only or p == only) and (p not in OPTIONAL_KEYS or os.environ.get(OPTIONAL_KEYS[p]))]
+    if not found:
+        raise ValueError(f"No model left in the chain for LLM_ONLY={only}")
+    return found
 
 
-def only_local_left() -> bool:
-    """True when every cloud model of the chain is skipped for the rest of the run (daily quota
-    spent, key refused): only local models can still answer."""
+def only_local_left(chain: list[tuple[str, str, bool]] | None = None) -> bool:
+    """True when every cloud model of the chain (config.MODEL_CHAIN by default) is skipped for the
+    rest of the run (daily quota spent, key refused): only local models can still answer."""
     with _calls_lock:
-        return all(f"{p}:{m}" in _unavailable for p, m in llm_chain() if p not in config.LOCAL_PROVIDERS)
+        return all(f"{p}:{m}" in _unavailable for p, m in llm_chain(chain) if p not in config.LOCAL_PROVIDERS)
 
 
 @cache
-def structured_llm(schema, models: tuple[tuple[str, str], ...] | None = None):
+def structured_llm(schema, models: tuple[tuple[str, str], ...] | None = None, timeout: float | None = None):
     """Models of the chain (or the given models), each returning the Pydantic schema, tried in
-    order with the rate-limit policy."""
-    return _chain([(f"{provider}:{model}", _client(provider, model).with_structured_output(schema))
+    order with the rate-limit policy. timeout: seconds per request of the cloud models (None: default)."""
+    return _chain([(f"{provider}:{model}", (_client(provider, model, timeout=timeout) if timeout
+                                            else _client(provider, model)).with_structured_output(schema))
                    for provider, model in (models or llm_chain())])
 
 
